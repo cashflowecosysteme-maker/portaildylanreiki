@@ -48,6 +48,7 @@ function nyxiaUserContextText() {
   ═══════════════════════════════════════════════════════════════════ */
 
   var PORTAL_AGENT = {"key":"eric","name":"Éric","sub":"CashFlow & Monétisation","icon":"💼","portail":"cercles","custom":true,"schemaVersion":4,"code":"eric","visibleRole":"CashFlow & Monétisation","shortDescription":"","biography":"","mission":"","prompt":"","systemPrompt":"","personality":"","values":"","tone":"","languageStyle":"","favoriteExpressions":"","avoidExpressions":"","expertise":"","skills":"","methods":"","teachingStyle":"","ethics":"","limits":"","canDo":"","cannotDo":"","welcomeMessage":"","greeting":"Salut, moi c’est Éric. 👋\nMon terrain, c’est la communication numérique et la monétisation.\nSi tu as une compétence, une formation, un service ou une idée mais que tu te demandes maintenant comment trouver les bonnes personnes et transformer ça en clientèle, tu es exactement au bon endroit.\nJe peux t’aider à construire ton offre, trouver ton message, créer ton contenu, préparer tes DM, remplir ton agenda, créer un lead magnet, une page de vente, des courriels ou carrément ton système d’acquisition.\nDis-moi ce que tu veux vendre — ou ce que tu viens d’apprendre — et on va construire le chemin entre ton expertise et tes futurs clients.","suggestions":[],"image":"https://d1yei2z3i6k35z.cloudfront.net/1872133/6ab6894dc705b0.51216272_Eric.png","welcomeVideo":"https://d1yei2z3i6k35z.cloudfront.net/1872133/6a8cb47d37ea38.22058087_Bienvenue%C3%89ricUniverselle.mp4","voiceName":"Éric","voiceId":"","voiceNotes":"La voix est sur Open AI","modelPrimary":"deepseek/deepseek-v3.2","modelFallback":"","primaryPortal":"cercles","portalAssignments":[],"formationRefs":[],"vectorNamespace":"","resources":[],"allowedMedia":["VIDEO","AUDIO","IMAGE","PDF","LINK","CANVA","IMAGE_GENERATE"],"tools":[],"internalNotes":"","tags":[],"active":true,"createdAt":"2026-09-29T15:50:48.702Z","updatedAt":"2026-09-29T16:37:42.077Z","version":3,"placement":"atelier","voiceEnv":"ELEVENLABS_ERIC_VOICE_ID"}
+  var _selectedFormation = null
   var _currentAgent = 'eric'
   var ALPHA_INFO = {}
   ALPHA_INFO[_currentAgent] = {
@@ -151,12 +152,72 @@ function nyxiaUserContextText() {
   }
 
 
+  var NYXIA_TRIGGER_PREFIX = '@NYXIA_TRIGGER:'
+
+  function decodeSuggestion(raw) {
+    if (raw && typeof raw === 'object') {
+      return {
+        label: String(raw.label || raw.text || raw.title || '').trim(),
+        action: String(raw.action || raw.type || 'chat').trim().toLowerCase(),
+        message: String(raw.message || raw.value || '').trim(),
+        url: String(raw.url || '').trim(),
+        intro: String(raw.intro || '').trim(),
+        resourceTitle: String(raw.resourceTitle || raw.resource || '').trim()
+      }
+    }
+
+    var text = String(raw || '').trim()
+    if (!text) return null
+
+    if (text.indexOf(NYXIA_TRIGGER_PREFIX) === 0) {
+      try {
+        var data = JSON.parse(text.slice(NYXIA_TRIGGER_PREFIX.length))
+        return {
+          label: String(data.l || data.label || '').trim(),
+          action: String(data.a || data.action || 'chat').trim().toLowerCase(),
+          message: String(data.m || data.message || '').trim(),
+          url: String(data.u || data.url || '').trim(),
+          intro: String(data.i || data.intro || '').trim(),
+          resourceTitle: String(data.r || data.resourceTitle || '').trim()
+        }
+      } catch (_) {}
+    }
+
+    return { label: text, action: 'chat', message: text, url: '', intro: '', resourceTitle: '' }
+  }
+
+  function suggestionResource(item) {
+    var resources = Array.isArray(PORTAL_AGENT && PORTAL_AGENT.resources) ? PORTAL_AGENT.resources : []
+    var title = String(item && item.resourceTitle || '').trim().toLowerCase()
+    if (!title) return null
+    for (var i = 0; i < resources.length; i++) {
+      var r = resources[i] || {}
+      if (String(r.title || '').trim().toLowerCase() === title) return r
+    }
+    return null
+  }
+
+
+  function refreshRuntimeAgentProfile() {
+    if (!sessionToken || !_currentAgent) return Promise.resolve()
+    return fetch('/api/agent/profile?token=' + encodeURIComponent(sessionToken) + '&agent=' + encodeURIComponent(_currentAgent), { cache:'no-store' })
+      .then(function(r){ if(!r.ok) throw new Error('Profil indisponible'); return r.json() })
+      .then(function(data){
+        if (!data || !data.profile) return
+        PORTAL_AGENT = Object.assign({}, PORTAL_AGENT || {}, data.profile)
+        if (data.profile.greeting) ALPHA_INFO[_currentAgent].greeting = data.profile.greeting
+        if (data.profile.image) AGENT_IMAGES[_currentAgent] = data.profile.image
+        if (data.profile.welcomeVideo) AGENT_WELCOME_VIDEO[_currentAgent] = data.profile.welcomeVideo
+      })
+      .catch(function(){})
+  }
+
   function renderAgentSuggestions() {
     var box = document.getElementById('suggestions')
     if (!box) return
-    var list = Array.isArray(PORTAL_AGENT && PORTAL_AGENT.suggestions) ? PORTAL_AGENT.suggestions.filter(Boolean).slice(0, 4) : []
-    if (!list.length) {
-      list = [
+    var rawList = Array.isArray(PORTAL_AGENT && PORTAL_AGENT.suggestions) ? PORTAL_AGENT.suggestions.filter(Boolean).slice(0, 4) : []
+    if (!rawList.length) {
+      rawList = [
         'Que peux-tu faire pour moi ?',
         'Commencer ma formation',
         'Aide-moi à avancer dans ce portail',
@@ -164,14 +225,14 @@ function nyxiaUserContextText() {
       ]
     }
     box.innerHTML = ''
-    list.forEach(function(item) {
-      var text = typeof item === 'string' ? item : String(item && (item.text || item.label || item.title) || '').trim()
-      if (!text) return
+    rawList.forEach(function(raw) {
+      var item = decodeSuggestion(raw)
+      if (!item || !item.label) return
       var b = document.createElement('button')
       b.type = 'button'
       b.className = 'sug-chip'
-      b.textContent = text
-      b.addEventListener('click', function() { useSuggestion(b) })
+      b.textContent = item.label
+      b.addEventListener('click', function() { useSuggestion(b, item) })
       box.appendChild(b)
     })
     box.style.display = box.children.length ? 'flex' : 'none'
@@ -185,34 +246,51 @@ function nyxiaUserContextText() {
     var btn = document.getElementById('formation-launch-btn')
     if (!wrap || !btn || !sessionToken || !_currentAgent) return
     wrap.style.display = 'none'
-    fetch('/api/formation/list?token=' + encodeURIComponent(sessionToken) + '&agent=' + encodeURIComponent(_currentAgent), { cache: 'no-store' })
-      .then(function(r) {
-        if (!r.ok) throw new Error('Formation indisponible')
-        return r.json()
-      })
-      .then(function(data) {
+    fetch('/api/formation/list?token=' + encodeURIComponent(sessionToken) + '&agent=' + encodeURIComponent(_currentAgent), { cache:'no-store' })
+      .then(function(r){ if(!r.ok) throw new Error('Formation indisponible'); return r.json() })
+      .then(function(data){
         var list = Array.isArray(data.formations) ? data.formations : []
-        if (!list.length) { _livingFormationInfo = null; wrap.style.display = 'none'; return }
-        _livingFormationInfo = { formation: list[0], hasProgress: !!data.hasProgress }
-        var title = String(list[0].titre || 'Formation Vivante').trim()
-        btn.textContent = data.hasProgress ? '📖 Reprendre · ' + title : '📖 Commencer · ' + title
-        btn.title = data.hasProgress ? 'Reprendre ta Formation Vivante' : 'Commencer ta Formation Vivante'
+        if (!list.length) { _livingFormationInfo = null; wrap.style.display='none'; return }
+        _livingFormationInfo = { hasFormations:true }
+        btn.disabled = false
+        btn.textContent = '🎓 Suivre mon parcours'
+        btn.title = 'Voir mes formations dans Mon Parcours'
         wrap.style.display = 'block'
       })
-      .catch(function() {
-        _livingFormationInfo = null
-        wrap.style.display = 'none'
-      })
+      .catch(function(){ _livingFormationInfo=null; wrap.style.display='none' })
   }
 
   function launchLivingFormation() {
     if (!_livingFormationInfo) { refreshLivingFormationButton(); return }
-    var text = _livingFormationInfo.hasProgress ? 'reprendre ma formation' : 'commencer ma formation'
-    sendMessageText(text, false, {})
-    var sug = document.getElementById('suggestions')
-    if (sug) sug.style.display = 'none'
-    setTimeout(refreshLivingFormationButton, 600)
+    try { window.parent.postMessage({type:'nyxia_open_parcours'}, '*') } catch (_) {}
   }
+
+  function openFormationFromParcours(data) {
+    if (!data || String(data.agent||'') !== String(_currentAgent)) return
+    var formationId = String(data.formationId||'').trim()
+    if (!formationId) return
+    fetch('/api/formation/open', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:sessionToken,agent:_currentAgent,formationId:formationId})
+    })
+    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,data:d} }) })
+    .then(function(res){
+      if(!res.ok)throw new Error(res.data.error||'Formation indisponible.')
+      _selectedFormation={id:formationId,mode:res.data.mode||'follow'}
+      var content=res.data.content||''
+      if(content){
+        addBotMessage(content)
+        currentHistory().push({role:'assistant',content:content})
+        saveChatToStorage()
+      }
+    })
+    .catch(function(e){ addBotMessage('⚠ '+e.message) })
+  }
+
+  window.addEventListener('message', function(e){
+    if(e.data&&e.data.type==='nyxia_open_formation')openFormationFromParcours(e.data)
+  })
 
   function init() {
     loadChatFromStorage()
@@ -221,7 +299,10 @@ function nyxiaUserContextText() {
     updateHeaderAvatar(_currentAgent)
     document.title = ALPHA_INFO[_currentAgent].name + ' — Portail Dylan'
 
-    renderAgentSuggestions()
+    refreshRuntimeAgentProfile().then(function(){
+      renderAgentSuggestions()
+      updateHeaderAvatar(_currentAgent)
+    })
     refreshLivingFormationButton()
     renderStoredMessages()
     var videoUrl = AGENT_WELCOME_VIDEO[_currentAgent]
@@ -432,27 +513,74 @@ function nyxiaUserContextText() {
     })
   }
 
-  function useSuggestion(btn) {
-    var _au = btn.getAttribute('data-audio')
-    var _vi = btn.getAttribute('data-video')
-    var _im = btn.getAttribute('data-image')
-    var _intro = btn.getAttribute('data-intro') || ''
-    if (_au || _vi || _im) {
-      var _body = _intro
-      if (_vi) _body += (_body ? '\n\n' : '') + '[VIDEO: ' + _vi.trim() + ']'
-      if (_au) _body += (_body ? '\n\n' : '') + '[AUDIO: ' + _au.trim() + ']'
-      if (_im) _body += (_body ? '\n\n' : '') + '[PHOTO: ' + _im.trim() + ']'
-      addBotMessage(_body)
-      return
+  function useSuggestion(btn, configuredItem) {
+    var item = configuredItem || null
+
+    /* Compatibilité avec les anciens boutons déjà câblés dans certains portails. */
+    if (!item) {
+      var _au = btn.getAttribute('data-audio')
+      var _vi = btn.getAttribute('data-video')
+      var _im = btn.getAttribute('data-image')
+      var _intro = btn.getAttribute('data-intro') || ''
+      if (_au || _vi || _im) {
+        var _legacyBody = _intro
+        if (_vi) _legacyBody += (_legacyBody ? '\n\n' : '') + '[VIDEO: ' + _vi.trim() + ']'
+        if (_au) _legacyBody += (_legacyBody ? '\n\n' : '') + '[AUDIO: ' + _au.trim() + ']'
+        if (_im) _legacyBody += (_legacyBody ? '\n\n' : '') + '[PHOTO: ' + _im.trim() + ']'
+        addBotMessage(_legacyBody)
+        return
+      }
+      item = { label: (btn.textContent || '').trim(), action: 'chat', message: (btn.textContent || '').trim() }
     }
-    var text = (btn.textContent || '').trim()
-    if (!text) return
-    if (/cr[ée]er? une image|g[ée]n[ée]rer? une image/i.test(text)) { triggerImageMode(); return }
-    var input = document.getElementById('chat-input')
-    if (input) { input.value = text; input.style.height = 'auto'; input.style.height = Math.min(input.scrollHeight, 120) + 'px' }
+
+    var action = String(item.action || 'chat').toLowerCase()
+    var label = String(item.label || btn.textContent || '').trim()
+    var resource = suggestionResource(item)
+    var url = String((resource && resource.url) || item.url || '').trim()
+    var intro = String(item.intro || '').trim()
+    var resourceLabel = String((resource && (resource.buttonLabel || resource.title)) || label || '').trim()
+
     var sug = document.getElementById('suggestions')
     if (sug) sug.style.display = 'none'
-    sendMessage()
+
+    if (action === 'chat' || !action) {
+      var text = String(item.message || label || '').trim()
+      if (!text) return
+      if (/cr[ée]er? une image|g[ée]n[ée]rer? une image/i.test(text)) { triggerImageMode(); return }
+      var input = document.getElementById('chat-input')
+      if (input) {
+        input.value = text
+        input.style.height = 'auto'
+        input.style.height = Math.min(input.scrollHeight, 120) + 'px'
+      }
+      sendMessage()
+      return
+    }
+
+    if (!safeExternalUrl(url)) {
+      addBotMessage((intro ? intro + '\n\n' : '') + '⚠ Cette ressource n’est pas encore configurée.')
+      return
+    }
+
+    var body = intro
+    if (action === 'video') body += (body ? '\n\n' : '') + '[VIDEO: ' + url + ']'
+    else if (action === 'audio') body += (body ? '\n\n' : '') + '[AUDIO: ' + url + ']'
+    else if (action === 'pdf') body += (body ? '\n\n' : '') + '[PDF: ' + url + '|' + (resourceLabel || 'Ouvrir le PDF') + ']'
+    else if (action === 'link' || action === 'canva') body += (body ? '\n\n' : '') + '[LINK: ' + url + '|' + (resourceLabel || 'Ouvrir la ressource') + ']'
+    else {
+      var fallback = String(item.message || label || '').trim()
+      if (fallback) {
+        var input2 = document.getElementById('chat-input')
+        if (input2) input2.value = fallback
+        sendMessage()
+      }
+      return
+    }
+
+    addBotMessage(body)
+    currentHistory().push({ role: 'assistant', content: body })
+    if (currentHistory().length > 40) chatHistories[_currentAgent] = currentHistory().slice(-40)
+    saveChatToStorage()
   }
 
   function sendMessage() {
@@ -493,7 +621,7 @@ function nyxiaUserContextText() {
     }
     fetch('/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, history: chatHistories[requestAgent].slice(-10), userName: clientName, agent: requestAgent, attachment: attachmentToSend, token: sessionToken })
+      body: JSON.stringify({ message: text, history: chatHistories[requestAgent].slice(-10), userName: clientName, agent: requestAgent, attachment: attachmentToSend, token: sessionToken, formationId:_selectedFormation&&_selectedFormation.id||'', formationMode:_selectedFormation&&_selectedFormation.mode||'' })
     })
     .then(function(r){ return r.json() })
     .then(function(data) {
@@ -511,8 +639,13 @@ function nyxiaUserContextText() {
           if (speakBtn) speakBtn.click()
         }
       }
+      if (data.formationDone || data.reviewDone) {
+        _selectedFormation = null
+        try { window.parent.postMessage({type:'nyxia_formation_progress_changed'}, '*') } catch (_) {}
+      }
       _inputWasVoice = false
       btn.disabled = false
+      refreshLivingFormationButton()
     })
     .catch(function(){ removeTyping(); addBotMessage('Petite interruption... réessaie dans un instant 💜'); btn.disabled = false })
   }

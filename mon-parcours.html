@@ -17,18 +17,33 @@
       <div>
         <p class="eyebrow">🌌 Mon Univers NyXia</p>
         <h1>Mon Parcours</h1>
-        <p>Retrouve ici les expériences, formations, outils et portes que NyXia rend disponibles. Cette page se nourrit directement des propositions publiées dans la Boutique NyXia : ce qui n’est pas publié n’apparaît pas ici.</p>
+        <p>Retrouve d’abord tes formations et ta progression dans ce portail. Plus bas, tu peux aussi découvrir les autres expériences publiées dans la Boutique NyXia.</p>
       </div>
       <div class="hero-orb" aria-hidden="true">🌌</div>
     </section>
 
-    <div class="toolbar">
-      <h2>À découvrir dans ton univers</h2>
+    <section class="formation-zone" aria-labelledby="formations-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">🎓 Formation Vivante</p>
+          <h2 id="formations-title">Mes formations dans ce portail</h2>
+        </div>
+      </div>
+      <div id="formation-trainers" class="formation-trainers" aria-live="polite">
+        <div class="loading">Ton parcours de formation apparaît…</div>
+      </div>
+    </section>
+
+    <div class="toolbar boutique-toolbar">
+      <div>
+        <p class="eyebrow">✨ Pour aller plus loin</p>
+        <h2>À découvrir dans la Boutique NyXia</h2>
+      </div>
       <input class="search" id="search" type="search" placeholder="Rechercher une formation, un outil, un univers…">
     </div>
 
     <section class="grid" id="cards" aria-live="polite">
-      <div class="loading">Les portes de ton parcours apparaissent…</div>
+      <div class="loading">Les portes de ton univers apparaissent…</div>
     </section>
   </main>
 

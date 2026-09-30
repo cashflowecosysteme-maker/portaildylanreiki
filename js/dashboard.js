@@ -323,7 +323,9 @@ var PORTAL_AGENT_META = {"nyxia":{"key":"nyxia","name":"NyXia","sub":"Technologi
       var page = name === 'parcours' ? '/mon-parcours.html' : '/cercle-entraide.html'
       if (iframe.getAttribute('data-loaded') !== '1') {
         iframe.setAttribute('data-loaded', '1')
-        iframe.src = page
+        iframe.src = page + (page.indexOf('?') >= 0 ? '&' : '?') + 't=' + encodeURIComponent(sessionToken || '')
+      } else if (name === 'parcours' && iframe.contentWindow) {
+        try { iframe.contentWindow.postMessage({type:'nyxia_refresh_parcours'}, '*') } catch (_) {}
       }
     }
 
@@ -346,9 +348,23 @@ var PORTAL_AGENT_META = {"nyxia":{"key":"nyxia","name":"NyXia","sub":"Technologi
 
     /* ═══════ MESSAGES DES IFRAMES → personnage ═══════ */
     window.addEventListener('message', function(e) {
-      if (e.data && e.data.type === 'nyxia_suggest' && e.data.text) {
-        // Ouvre NyXia et laisse l'iframe gérer (le chat est maintenant dans l'iframe)
+      if (!e.data) return
+      if (e.data.type === 'nyxia_suggest' && e.data.text) {
         openAgentTab(PORTAL_DEFAULT_AGENT)
+      } else if (e.data.type === 'nyxia_open_parcours') {
+        openUniversePage('parcours')
+      } else if (e.data.type === 'nyxia_open_formation' && e.data.agent && e.data.formationId) {
+        openAgentTab(String(e.data.agent), {
+          type:'nyxia_open_formation',
+          agent:String(e.data.agent),
+          formationId:String(e.data.formationId),
+          status:String(e.data.status||'')
+        })
+      } else if (e.data.type === 'nyxia_formation_progress_changed') {
+        var pf = document.getElementById('parcours-iframe')
+        if (pf && pf.contentWindow) {
+          try { pf.contentWindow.postMessage({type:'nyxia_refresh_parcours'}, '*') } catch (_) {}
+        }
       }
     })
 
@@ -535,7 +551,7 @@ var PORTAL_AGENT_META = {"nyxia":{"key":"nyxia","name":"NyXia","sub":"Technologi
     // Chaque personnage a sa propre page, chargée dans l'iframe du tableau de bord.
     var AGENT_PAGES = {"nyxia":"/chat-nyxia.html","diane":"/chat-diane.html","eric":"/chat-eric.html","dylan":"/chat-dylan.html"}
 
-    function openAgentTab(key) {
+    function openAgentTab(key, pendingMessage) {
       // Affiche le panel chat
       document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active') })
       document.querySelectorAll('.nav-item').forEach(function(n) { n.classList.remove('active') })
@@ -557,16 +573,19 @@ var PORTAL_AGENT_META = {"nyxia":{"key":"nyxia","name":"NyXia","sub":"Technologi
         var current = iframe.getAttribute('data-agent') || ''
         if (current !== key) {
           iframe.setAttribute('data-agent', key)
+          iframe.onload = function() {
+            try {
+              iframe.contentWindow.postMessage({
+                type:'nyxia_user_context',
+                firstname: clientName || '',
+                email: clientEmail || ''
+              }, '*')
+              if (pendingMessage) iframe.contentWindow.postMessage(pendingMessage, '*')
+            } catch (_) {}
+          }
           iframe.src = base + '&_=' + Date.now()
-        iframe.onload = function() {
-          try {
-            iframe.contentWindow.postMessage({
-              type:'nyxia_user_context',
-              firstname: clientName || '',
-              email: clientEmail || ''
-            }, '*')
-          } catch (_) {}
-        }
+        } else if (pendingMessage && iframe.contentWindow) {
+          try { iframe.contentWindow.postMessage(pendingMessage, '*') } catch (_) {}
         }
       }
 

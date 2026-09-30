@@ -1,3 +1,41 @@
+
+var parcoursToken=new URLSearchParams(location.search).get('t')||sessionStorage.getItem('nyxia_token')||'';
+function parcoursEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function formationStatusLabel(f){
+ if(f.status==='completed')return'<span class="formation-status completed">✓ Terminée</span>';
+ if(f.status==='active')return'<span class="formation-status active">'+(f.hasProgress?'▶ En cours':'▶ Disponible')+'</span>';
+ return'<span class="formation-status locked">🔒 À venir</span>';
+}
+function renderParcoursFormations(data){
+ var host=document.getElementById('formation-trainers');if(!host)return;
+ var trainers=Array.isArray(data&&data.trainers)?data.trainers:[];
+ if(!trainers.length){host.innerHTML='<div class="empty">Aucune Formation Vivante n’est encore publiée dans ce portail.</div>';return}
+ host.innerHTML=trainers.map(function(t){
+   var avatar=t.image?'<img src="'+parcoursEsc(t.image)+'" alt="">':'<span class="trainer-fallback">✦</span>';
+   var rows=(t.formations||[]).map(function(f){
+     var disabled=f.status==='locked';
+     return '<button type="button" class="formation-row '+parcoursEsc(f.status||'')+'" data-agent="'+parcoursEsc(t.agent)+'" data-formation="'+parcoursEsc(f.id)+'" data-status="'+parcoursEsc(f.status||'')+'" '+(disabled?'disabled aria-disabled="true"':'')+'>'+
+       '<span class="formation-main"><strong>'+parcoursEsc(f.titre||'Formation')+'</strong>'+(f.description?'<small>'+parcoursEsc(f.description)+'</small>':'')+'</span>'+
+       formationStatusLabel(f)+'<span class="formation-arrow">'+(disabled?'':'›')+'</span></button>';
+   }).join('');
+   return '<article class="trainer-card"><div class="trainer-head">'+avatar+'<div><strong>'+parcoursEsc(t.name||t.agent)+'</strong><span>'+parcoursEsc(t.role||'Formateur·rice')+'</span></div></div><div class="formation-list">'+rows+'</div></article>';
+ }).join('');
+ host.querySelectorAll('[data-formation]:not([disabled])').forEach(function(btn){
+   btn.addEventListener('click',function(){
+     try{window.parent.postMessage({type:'nyxia_open_formation',agent:btn.dataset.agent,formationId:btn.dataset.formation,status:btn.dataset.status},'*')}catch(_){}
+   });
+ });
+}
+function loadParcoursFormations(){
+ var host=document.getElementById('formation-trainers');if(host)host.innerHTML='<div class="loading">Ton parcours de formation apparaît…</div>';
+ fetch('/api/parcours/formations?token='+encodeURIComponent(parcoursToken),{cache:'no-store'})
+  .then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d}})})
+  .then(function(res){if(!res.ok)throw Error(res.data.error||'Parcours indisponible.');renderParcoursFormations(res.data)})
+  .catch(function(e){if(host)host.innerHTML='<div class="error">'+parcoursEsc(e.message)+'</div>'});
+}
+window.addEventListener('message',function(e){if(e.data&&e.data.type==='nyxia_refresh_parcours')loadParcoursFormations()});
+document.addEventListener('DOMContentLoaded',loadParcoursFormations);
+
 (function(){
 'use strict';
 var state={products:[],settings:{}};
