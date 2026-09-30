@@ -1,4 +1,4 @@
-name = "portail-dylan"
+name = "portail-dylan-reiki"
 main = "_worker.js"
 compatibility_date = "2026-09-27"
 compatibility_flags = ["nodejs_compat"]
@@ -33,4 +33,4 @@ binding = "AI"
 
 [vars]
 SITE_URL = "https://portaildylanreiki.nyxia.top/"
-PORTAIL = "portail-dylan"
+PORTAIL = "portail-dylan-reiki"

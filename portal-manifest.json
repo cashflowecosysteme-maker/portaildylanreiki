@@ -1,5 +1,5 @@
 {
-  "id": "portail-dylan",
+  "id": "portail-dylan-reiki",
   "title": "Portail Dylan",
   "shortTitle": "Devenir Maître Reiki",
   "mission": "Formation complète Reiki I - Reiki II - Reiki III - Maître Reiki <br> \nVivre de sa pratique ",
@@ -248,6 +248,6 @@
     }
   ],
   "host": "portaildylanreiki.nyxia.top",
-  "workerName": "portail-dylan",
-  "compiledAt": "2026-09-30T19:25:00.472Z"
+  "workerName": "portail-dylan-reiki",
+  "compiledAt": "2026-09-30T20:35:06.653Z"
 }
