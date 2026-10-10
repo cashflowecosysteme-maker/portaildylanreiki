@@ -34,3 +34,5 @@ binding = "AI"
 [vars]
 SITE_URL = "https://portaildylanreiki.nyxia.top/"
 PORTAIL = "portail-dylan-reiki"
+SYSTEME_ACTIVATION_FIELD = "lien_activation_nyxia"
+SYSTEME_ACTIVATION_TAG_ID = "2221814"
