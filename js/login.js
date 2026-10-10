@@ -24,7 +24,7 @@
     function doLogin() {
       var firstname = document.getElementById('firstname').value.trim()
       var email    = document.getElementById('email').value.trim()
-      var password = document.getElementById('password').value.trim()
+      var password = document.getElementById('password').value
       var btn      = document.getElementById('btn-login')
       var spinner  = document.getElementById('spinner')
       var btnText  = document.getElementById('btn-text')
