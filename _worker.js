@@ -500,7 +500,36 @@ async function nyxiaRepertoireFeed(){
 }
 
 function staticReq(req,path){return new Request(new URL(path,req.url),req)}
+
+// Changement de mot de passe depuis le tableau de bord.
+async function nxDashboardPasswordChange(request,env){
+ const body=await request.json().catch(()=>({})),token=body.token||await nxToken(request),s=await nxSession(env,token);
+ if(!s)return json({error:'Session expirée. Reconnecte-toi.'},401);
+ const password=String(body.password||''),current=String(body.currentPassword||'');
+ if(password.length<8||password.length>1024)return json({error:'Le nouveau mot de passe doit contenir entre 8 et 1024 caractères.'},400);
+ if(password!==body.confirm)return json({error:'Les deux nouveaux mots de passe ne correspondent pas.'},400);
+ const email=nxNorm(s.email);
+ if(s.authSource==='d1'){
+  if(!env.DB||typeof verifyPasswordAffil!=='function'||typeof hashPasswordAffil!=='function')return json({error:'Ce type de compte ne permet pas ce changement ici.'},400);
+  const user=await env.DB.prepare('SELECT password_hash FROM users WHERE id = ? AND email = ? LIMIT 1').bind(s.userId,email).first();
+  if(!user||!await verifyPasswordAffil(current,user.password_hash))return json({error:'Le mot de passe actuel est incorrect.'},400);
+  const next=await hashPasswordAffil(password);
+  const updated=await env.DB.prepare('UPDATE users SET password_hash = ? WHERE id = ? AND email = ? AND password_hash = ?').bind(next,s.userId,email,user.password_hash).run();
+  if(updated.meta&&updated.meta.changes!==1)return json({error:'Le compte a changé. Reconnecte-toi puis réessaie.'},409);
+ }else{
+  const key='client:'+email,client=await nxRead(env,key);
+  const valid=client?.passwordHash&&client.salt?nxSame(await nxHash(current,client.salt),client.passwordHash):nxSame(current,client?.password);
+  if(!valid)return json({error:'Le mot de passe actuel est incorrect.'},400);
+  client.salt=crypto.randomUUID();client.passwordHash=await nxHash(password,client.salt);client.authVersion=crypto.randomUUID();delete client.password;
+  await env.CASHFLOW_KV.put(key,JSON.stringify(client));
+ }
+ for(const prefix of ['session:','portal:session:']){let cursor;do{const page=await env.CASHFLOW_KV.list({prefix,cursor});for(const k of page.keys||[]){const old=await nxRead(env,k.name);if(nxNorm(old?.email)===email)await env.CASHFLOW_KV.delete(k.name)}cursor=page.list_complete?null:page.cursor}while(cursor)}
+ const response=json({success:true,message:'Mot de passe modifié. Reconnecte-toi avec ton nouveau mot de passe.'});
+ response.headers.set('Cache-Control','no-store');response.headers.set('Set-Cookie','nyxia_portal_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');return response;
+}
+
 export default{async fetch(req,env){const u=new URL(req.url),p=u.pathname;try{
+ if(new URL(req.url).pathname==='/api/password/change'&&req.method==='POST')return await nxDashboardPasswordChange(req,env);
  const denied=await nxGuard(req,env);if(denied)return denied;
  if(p==='/api/login'&&req.method==='POST')return login(req,env);
  if(p==='/api/logout'&&req.method==='POST')return logout(req,env);
@@ -535,4 +564,5 @@ export default{async fetch(req,env){const u=new URL(req.url),p=u.pathname;try{
   if(isProtectedHtml(p)){const s=await browserSession(req,env);if(!s)return loginRedirect(req)}
   return env.ASSETS.fetch(req)
  }return new Response('Not found',{status:404})}}
+
 
