@@ -296,13 +296,14 @@ function sanitizeAssistantContent(content){
 }
 
 async function openrouter(env,messages,model){const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+env.OPENROUTER_API_KEY,'HTTP-Referer':'https://nyxia.top','X-Title':'NyXia Portail'},body:JSON.stringify({model:model||DEFAULT_MODEL,messages,max_tokens:900,temperature:.72})});if(!r.ok)throw Error('OpenRouter '+r.status);const d=await r.json();return d.choices?.[0]?.message?.content?.trim()||''}
-async function chat(req,env){const b=await req.json().catch(()=>({})),s=await session(env,b.token);if(!s)return json({error:'Session expirée.'},401);const key=norm(b.agent),a=AGENTS[key];if(!a||!ACTIVE.has(key))return json({error:'Personnage indisponible.'},403);
+async function chat(req,env){const b=await req.json().catch(()=>({})),s=await session(env,b.token);if(!s)return json({error:'Session expirée.'},401);const key=norm(b.agent),base=AGENTS[key],a=base?await nxPremiumAgent(env,key,base):null;if(!a||!ACTIVE.has(key))return json({error:'Personnage indisponible.'},403);
  const ft=await formationTurn(env,s,key,b.message||'',b.formationId||'',b.formationMode||'');if(ft)return json(ft);
  const brain=await retrieve(env,a.vectorNamespace||key,b.message||'');let imageInfo='';if(b.attachment?.dataUrl)imageInfo='\nLa personne a joint une image nommée '+String(b.attachment.name||'image')+'.';
  const sys=`Tu es ${a.name||key}, personnage de l’univers NyXia dans le portail « ${PORTAL.title} ».
 Rôle : ${a.sub||a.visibleRole||''}
 Mission : ${a.mission||a.prompt||''}
 Personnalité : ${a.personality||''}
+${nxPremiumInstructions(a)}
 Style : ${a.tone||a.languageStyle||''}
 Tu réponds en français naturel. Tu restes fidèle à ton identité et à la mission de ce portail.
 Tu n’inventes jamais de PDF, vidéo, audio, lien ou URL. Tu n’envoies aucun média spontané et tu ne simules jamais une ressource inexistante. Si une ressource n’est pas réellement configurée dans le portail, tu n’en parles pas comme si elle existait. Si la personne veut une image, réponds naturellement sans inventer de lien : le portail gère la création d’image via le bouton 🎨 ou une demande explicite.
@@ -319,7 +320,37 @@ async function imageGenerate(req,env){const b=await req.json().catch(()=>({})),s
  if(first){if(first.url)url=String(first.url);else if(first.b64_json)url='data:image/png;base64,'+String(first.b64_json);else if(first.b64)url='data:image/png;base64,'+String(first.b64)}
  if(!url&&d.url)url=String(d.url);if(!url&&d.b64_json)url='data:image/png;base64,'+String(d.b64_json);if(!url)return json({error:'Aucune image valide n’a été retournée par AIMLAPI.'},502);
  return json({url,caption:'Voici l’image que j’ai créée pour toi.'})}
-async function tts(req,env){const b=await req.json().catch(()=>({})),s=await session(env,b.token);if(!s)return json({error:'Session expirée.'},401);const a=AGENTS[norm(b.agent)]||{},voice=String(a.voiceId||'');if(!voice||!env.ELEVENLABS_API_KEY)return json({error:'Voix non configurée.'},404);const r=await fetch('https://api.elevenlabs.io/v1/text-to-speech/'+encodeURIComponent(voice),{method:'POST',headers:{'xi-api-key':env.ELEVENLABS_API_KEY,'Content-Type':'application/json','Accept':'audio/mpeg'},body:JSON.stringify({text:String(b.text||'').slice(0,4500),model_id:'eleven_multilingual_v2'})});if(!r.ok)return json({error:'Voix indisponible.'},502);return new Response(await r.arrayBuffer(),{headers:{'Content-Type':'audio/mpeg'}})}
+const NYXIA_OPENAI_VOICES=new Set(['alloy','ash','ballad','coral','echo','fable','nova','onyx','sage','shimmer','verse','marin','cedar']);
+const NYXIA_LEGACY_OPENAI_VOICES={eric:'echo',kael:'onyx',lena:'nova',selena:'shimmer',alex:'ash'};
+async function tts(req,env){
+  const b=await req.json().catch(()=>({})),s=await session(env,b.token);
+  if(!s)return json({error:'Session expirée.'},401);
+  const key=norm(b.agent),base=AGENTS[key];
+  const a=base?await nxPremiumAgent(env,key,base):null;
+  if(!a||!ACTIVE.has(key))return json({error:'Personnage indisponible.'},403);
+  const text=String(b.text||'').slice(0,4000).trim();
+  if(!text)return json({error:'Texte absent.'},400);
+  const configured=String(a.voiceId||(a.voiceEnv&&env[a.voiceEnv])||'').trim();
+  const explicit=String(a.openaiVoice||a.voiceOpenAI||'').trim().toLowerCase();
+  const candidate=configured.toLowerCase().replace(/^openai[:/]/,'');
+  const openaiVoice=NYXIA_OPENAI_VOICES.has(explicit)?explicit:
+    NYXIA_OPENAI_VOICES.has(candidate)?candidate:!configured?NYXIA_LEGACY_OPENAI_VOICES[key]:'';
+  let r;
+  if(openaiVoice){
+    const apiKey=env.OpenAI_KEY||env.OpenAi_KEY||env.OPENAI_API_KEY;
+    if(!apiKey)return json({error:'Clé OpenAI absente. Configure le secret OpenAI_KEY ou OPENAI_API_KEY dans ce Worker.'},500);
+    // Les voix historiques sont conservées; les voix plus récentes utilisent le modèle compatible.
+    const model=['marin','cedar'].includes(openaiVoice)?'gpt-4o-mini-tts':'tts-1';
+    r=await fetch('https://api.openai.com/v1/audio/speech',{method:'POST',headers:{Authorization:'Bearer '+apiKey,'Content-Type':'application/json'},body:JSON.stringify({model,voice:openaiVoice,input:text,response_format:'mp3'})});
+    if(!r.ok)return json({error:'Voix OpenAI indisponible ('+r.status+').'},502);
+  }else{
+    if(!configured||!env.ELEVENLABS_API_KEY)return json({error:'Voix ElevenLabs non configurée.'},404);
+    r=await fetch('https://api.elevenlabs.io/v1/text-to-speech/'+encodeURIComponent(configured),{method:'POST',headers:{'xi-api-key':env.ELEVENLABS_API_KEY,'Content-Type':'application/json',Accept:'audio/mpeg'},body:JSON.stringify({text,model_id:'eleven_multilingual_v2'})});
+    if(!r.ok)return json({error:'Voix ElevenLabs indisponible ('+r.status+').'},502);
+  }
+  return new Response(await r.arrayBuffer(),{headers:{'Content-Type':'audio/mpeg','Cache-Control':'no-store'}});
+}
+
 function mediaFormatSize(format){if(format==='portrait')return{orientation:'portrait',pixabayOrientation:'vertical'};if(format==='landscape')return{orientation:'landscape',pixabayOrientation:'horizontal'};return{orientation:'',pixabayOrientation:'all'}}
 async function searchImages(env,q,format){
  const results=[],seen=new Set(),fmt=mediaFormatSize(format);
@@ -528,7 +559,7 @@ async function nxDashboardPasswordChange(request,env){
  response.headers.set('Cache-Control','no-store');response.headers.set('Set-Cookie','nyxia_portal_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0');return response;
 }
 
-export default{async fetch(req,env){const u=new URL(req.url),p=u.pathname;try{
+const nxOriginalWorker = {async fetch(req,env){const u=new URL(req.url),p=u.pathname;try{
  if(new URL(req.url).pathname==='/api/password/change'&&req.method==='POST')return await nxDashboardPasswordChange(req,env);
  const denied=await nxGuard(req,env);if(denied)return denied;
  if(p==='/api/login'&&req.method==='POST')return login(req,env);
@@ -566,3 +597,77 @@ export default{async fetch(req,env){const u=new URL(req.url),p=u.pathname;try{
  }return new Response('Not found',{status:404})}}
 
 
+
+
+async function nxPremiumRead(env,key){
+  if(!env.CASHFLOW_KV)return null;
+  try{const raw=await env.CASHFLOW_KV.get('nyxia:personnage-profil:'+String(key).toLowerCase());return raw?JSON.parse(raw):null}catch(_){return null}
+}
+const NX_PREMIUM_FIELDS=['name','visibleRole','sub','shortDescription','biography','mission','prompt','systemPrompt','personality','values','tone','languageStyle','favoriteExpressions','avoidExpressions','expertise','skills','methods','teachingStyle','ethics','limits','canDo','cannotDo','welcomeMessage','greeting','suggestions','image','welcomeVideo','voiceName','voiceId','modelPrimary','modelFallback','vectorNamespace','resources'];
+function nxPremiumMerge(base,profile){
+  const a={...base};if(!profile)return a;
+  for(const k of NX_PREMIUM_FIELDS)if(Object.prototype.hasOwnProperty.call(profile,k)){
+    if(k==='voiceId'&&!String(profile[k]||'').trim())continue;
+    a[k]=profile[k];
+  }
+  if(Object.prototype.hasOwnProperty.call(profile,'visibleRole'))a.sub=profile.visibleRole;
+  if(Object.prototype.hasOwnProperty.call(profile,'welcomeMessage'))a.greeting=profile.welcomeMessage;
+  if(Object.prototype.hasOwnProperty.call(profile,'mission'))a.prompt=profile.mission;
+  return a;
+}
+async function nxPremiumAgent(env,key,base){return nxPremiumMerge(base,await nxPremiumRead(env,key))}
+function nxPremiumInstructions(p){
+  if(!p)return '';
+  const labels={name:'Nom',visibleRole:'Rôle',biography:'Biographie',mission:'Mission',systemPrompt:'Instructions du personnage',personality:'Personnalité',values:'Valeurs',tone:'Ton',languageStyle:'Langage',favoriteExpressions:'Expressions favorites',avoidExpressions:'Expressions à éviter',expertise:'Expertise',skills:'Compétences',methods:'Méthodes',teachingStyle:'Pédagogie',ethics:'Éthique',limits:'Limites',canDo:'Peut faire',cannotDo:'Ne doit pas faire'};
+  return Object.entries(labels).filter(([k])=>typeof p[k]==='string'&&p[k].trim()).map(([k,label])=>label+' : '+p[k]).join('\n');
+}
+async function nxPremiumPrompt(env,key,base){
+  const p=await nxPremiumRead(env,key);if(!p)return base;
+  return base+'\n\nFICHE PREMIUM ACTUELLE : les éléments suivants remplacent les anciennes descriptions de ce personnage. Conserve les règles techniques du portail.\n'+nxPremiumInstructions(p);
+}
+
+const NX_PREMIUM_KEYS=()=>[...ACTIVE].filter(k=>AGENTS[k]);
+const NX_PREMIUM_HYDRATE="if(data&&data.valid&&data.premiumProfiles){\n  Object.keys(data.premiumProfiles).forEach(function(key){\n    var p=data.premiumProfiles[key];\n    if(typeof ALPHA_INFO!=='undefined'&&ALPHA_INFO&&ALPHA_INFO[key])Object.assign(ALPHA_INFO[key],p);\n    if(typeof AGENT_IMAGES!=='undefined'&&AGENT_IMAGES&&Object.prototype.hasOwnProperty.call(p,'image'))AGENT_IMAGES[key]=p.image;\n    if(typeof AGENT_WELCOME_VIDEO!=='undefined'&&AGENT_WELCOME_VIDEO&&Object.prototype.hasOwnProperty.call(p,'welcomeVideo'))AGENT_WELCOME_VIDEO[key]=p.welcomeVideo;\n    if(typeof AGENT_SUGGESTIONS!=='undefined'&&AGENT_SUGGESTIONS&&Array.isArray(p.suggestions))AGENT_SUGGESTIONS[key]=p.suggestions;\n    if(typeof PORTAL_AGENT_META!=='undefined'&&PORTAL_AGENT_META&&PORTAL_AGENT_META[key])Object.assign(PORTAL_AGENT_META[key],p);\n    if(typeof PORTAL_AGENT!=='undefined'&&PORTAL_AGENT&&typeof _currentAgent!=='undefined'&&_currentAgent===key)Object.assign(PORTAL_AGENT,p);\n  });\n}\n";
+async function nxPremiumPresentation(env,keys){
+  const result={};
+  await Promise.all(keys.map(async key=>{
+    const p=await nxPremiumRead(env,key);if(!p)return;
+    const pub={};
+    for(const k of ['name','sub','image','welcomeVideo','greeting','suggestions'])if(Object.prototype.hasOwnProperty.call(p,k))pub[k]=p[k];
+    if(Object.prototype.hasOwnProperty.call(p,'visibleRole'))pub.sub=p.visibleRole;
+    if(Object.prototype.hasOwnProperty.call(p,'welcomeMessage'))pub.greeting=p.welcomeMessage;
+    result[key]=pub;
+  }));
+  return result;
+}
+function nxPremiumHydrateSource(text){
+  if(!text.includes('/api/check-auth')||text.includes('data.premiumProfiles'))return text;
+  const injection=NX_PREMIUM_HYDRATE;
+  return text.replace(/\.then\(\s*function\s*\(\s*data\s*\)\s*\{/g,match=>match+'\n'+injection+'\n')
+    .replace(/\.then\(\s*data\s*=>\s*\{/g,match=>match+'\n'+injection+'\n');
+}
+export default {
+  async fetch(request,env,ctx){
+    const response=await nxOriginalWorker.fetch(request,env,ctx);
+    const path=new URL(request.url).pathname;
+    if(path==='/api/check-auth'&&response.ok){
+      let data;try{data=await response.clone().json()}catch(_){return response}
+      if(data.valid){
+        data.premiumProfiles=await nxPremiumPresentation(env,NX_PREMIUM_KEYS());
+        const headers=new Headers(response.headers);headers.delete('Content-Length');headers.delete('ETag');headers.set('Cache-Control','no-store');
+        return new Response(JSON.stringify(data),{status:response.status,headers});
+      }
+      return response;
+    }
+    const type=response.headers.get('Content-Type')||'';
+    if(response.ok&&request.method==='GET'&&(type.includes('text/html')||type.includes('javascript'))&&
+      !/\/(login|index|premiere-connexion|mot-de-passe)/.test(path)){
+      const original=await response.clone().text(),updated=nxPremiumHydrateSource(original);
+      if(updated!==original){
+        const headers=new Headers(response.headers);headers.delete('Content-Length');headers.delete('ETag');headers.set('Cache-Control','no-store');
+        return new Response(updated,{status:response.status,headers});
+      }
+    }
+    return response;
+  }
+};
