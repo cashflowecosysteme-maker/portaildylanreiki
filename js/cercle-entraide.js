@@ -25,7 +25,7 @@ function openDetail(p){
  var actions=[];
  var offer=String(p.affiliate_link||'').trim();
  if(offer)actions.push('<a class="btn" href="'+esc(offer)+'" target="_blank" rel="noopener">Voir l’offre</a>');
- actions.push('<a class="btn primary" href="https://www.publication-web.com/nyxia/promoteurs" target="_blank" rel="noopener">Rejoindre le Cercle</a>');
+ actions.push('<a class="btn primary" href="https://www.universnyxia.top/nyxia/cercledentraide" target="_blank" rel="noopener">Rejoindre le Cercle</a>');
  actions.push('<a class="btn" href="https://promoteurs.nyxia.top/login.html" target="_blank" rel="noopener">Déjà membre ?</a>');
  document.getElementById('detail-actions').innerHTML=actions.join('');
  document.getElementById('detail').classList.add('open');
