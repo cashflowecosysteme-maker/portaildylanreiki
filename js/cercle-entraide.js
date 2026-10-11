@@ -14,7 +14,7 @@ function render(list){
     +'<h3>'+esc(p.title||'Produit du Cercle')+'</h3>'
     +'<div class="desc">'+esc(d)+(d.length>=155?'…':'')+'</div>'
     +(money(p)?'<div class="price">'+esc(money(p))+'</div>':'')
-    +'<div class="actions"><button class="btn primary" data-open="'+i+'">Voir dans le Cercle</button></div></div></article>'
+    +'<div class="actions"><button class="btn primary" data-open="'+i+'">En Savoir Plus</button></div></div></article>'
  }).join('');
  document.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){openDetail(list[Number(b.dataset.open)])}})
 }
