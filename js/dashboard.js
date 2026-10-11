@@ -204,79 +204,6 @@ var PORTAL_AGENT_META = {"nyxia":{"key":"nyxia","name":"NyXia","sub":"Technologi
       var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML
     }
 
-    /* ═══════ RÉPERTOIRE DES MÉDIAS MAGIQUES ═══════ */
-    var _mediaTab = 'visual'
-    var _mediaFormat = ''
-
-    function switchMediaTab(tab) {
-      _mediaTab = tab
-      document.getElementById('media-tab-visual').style.background = tab === 'visual' ? 'rgba(123,92,255,0.15)' : 'transparent'
-      document.getElementById('media-tab-visual').style.color = tab === 'visual' ? '#fff' : 'var(--t3)'
-      document.getElementById('media-tab-sound').style.background = tab === 'sound' ? 'rgba(123,92,255,0.15)' : 'transparent'
-      document.getElementById('media-tab-sound').style.color = tab === 'sound' ? '#fff' : 'var(--t3)'
-      document.getElementById('media-format-row').style.display = tab === 'visual' ? 'flex' : 'none'
-      document.getElementById('media-query').placeholder = tab === 'visual'
-        ? "Que cherches-tu aujourd'hui ? (ex: coucher de soleil, pluie douce...)"
-        : "Quel son cherches-tu ? (ex: pluie, feu de camp, clochette...)"
-      document.getElementById('media-results').innerHTML = ''
-    }
-
-    function setMediaFormat(format) {
-      _mediaFormat = format
-      document.querySelectorAll('.media-format-btn').forEach(function(btn) {
-        var active = btn.getAttribute('data-format') === format
-        btn.style.background = active ? 'rgba(123,92,255,0.15)' : 'transparent'
-        btn.style.color = active ? '#fff' : 'var(--t3)'
-      })
-    }
-
-    function searchMedias() {
-      var query = document.getElementById('media-query').value.trim()
-      var resultsEl = document.getElementById('media-results')
-      if (!query) return
-      resultsEl.innerHTML = '<div style="grid-column:1/-1;color:var(--t3);font-size:13px">La recherche prend vie...</div>'
-
-      var endpoint = _mediaTab === 'visual' ? '/api/media/images' : '/api/media/sounds'
-      var payload = { token: sessionToken, query: query }
-      if (_mediaTab === 'visual') payload.format = _mediaFormat
-
-      fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      .then(r => r.json())
-      .then(data => {
-        var results = data.results || []
-        if (results.length === 0) {
-          resultsEl.innerHTML = '<div style="grid-column:1/-1;color:var(--t3);font-size:13px">Rien trouvé pour l\'instant, essaie un autre mot ou un autre format. 🔮</div>'
-          return
-        }
-        if (_mediaTab === 'visual') {
-          resultsEl.innerHTML = results.map(function(m) {
-            var media = m.type === 'video'
-              ? '<video src="' + m.videoUrl + '" poster="' + m.previewUrl + '" controls preload="metadata" style="width:100%;height:140px;object-fit:cover;border-radius:10px 10px 0 0;background:#000"></video>'
-              : '<img src="' + m.previewUrl + '" style="width:100%;height:140px;object-fit:cover;border-radius:10px 10px 0 0" alt="">'
-            var badge = m.type === 'video' ? '<span style="position:absolute;top:6px;right:6px;background:rgba(0,0,0,0.6);color:#fff;font-size:10px;padding:2px 6px;border-radius:6px;pointer-events:none">▶ vidéo</span>' : ''
-            return '<div style="background:rgba(123,92,255,0.05);border:1px solid rgba(123,92,255,0.12);border-radius:10px;overflow:hidden;position:relative">' +
-              badge + '<span style="position:absolute;top:6px;left:6px;background:rgba(6,10,24,.72);color:#ddd6fe;font-size:9px;padding:2px 6px;border-radius:6px;z-index:2">'+escapeHtmlMsg(m.provider||'Média')+'</span>' + media +
-              '<div style="padding:8px"><a href="' + m.downloadUrl + '" style="display:block;text-align:center;width:100%;padding:6px;border-radius:8px;background:rgba(123,92,255,0.15);color:#fff;font-size:11px;text-decoration:none">⬇ Télécharger</a></div>' +
-            '</div>'
-          }).join('')
-        } else {
-          resultsEl.innerHTML = '<div style="grid-column:1/-1;display:flex;flex-direction:column;gap:10px">' + results.map(function(m) {
-            return '<div style="background:rgba(123,92,255,0.05);border:1px solid rgba(123,92,255,0.12);border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:12px">' +
-              '<div style="flex:1"><div style="font-size:13px;font-weight:600;margin-bottom:6px">' + escapeHtmlMsg(m.name) + ' <span style="color:var(--t3);font-weight:400">(' + m.duration + 's)</span></div>' +
-              '<audio controls src="' + m.audioUrl + '" style="height:32px;width:100%"></audio></div>' +
-              '<a href="' + m.downloadUrl + '" style="padding:8px 12px;border-radius:8px;background:rgba(123,92,255,0.15);color:#fff;font-size:11px;white-space:nowrap;text-decoration:none">⬇ Télécharger</a>' +
-            '</div>'
-          }).join('') + '</div>'
-        }
-      })
-      .catch(() => { resultsEl.innerHTML = '<div style="grid-column:1/-1;color:var(--t3);font-size:13px">Petite interruption... réessaie.</div>' })
-    }
-
-    document.addEventListener('DOMContentLoaded', function() {
-      var mq = document.getElementById('media-query')
-      if (mq) mq.addEventListener('keydown', function(e) { if (e.key === 'Enter') searchMedias() })
-    })
-
     /* ═══════ NAVIGATION ═══════ */
     var WRITING_WORKSHOP_AGENTS = ["eric"]
 
@@ -306,6 +233,10 @@ var PORTAL_AGENT_META = {"nyxia":{"key":"nyxia","name":"NyXia","sub":"Technologi
     }
 
     function showPanel(name) {
+      if (name === 'medias') {
+        var mediaFrame = document.getElementById('medias-iframe');
+        if (mediaFrame && mediaFrame.getAttribute('src') === 'about:blank') mediaFrame.src = '/media.html';
+      }
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'))
       document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'))
       updateWritingWorkshopState('')

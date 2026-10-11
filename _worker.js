@@ -351,17 +351,19 @@ async function tts(req,env){
   return new Response(await r.arrayBuffer(),{headers:{'Content-Type':'audio/mpeg','Cache-Control':'no-store'}});
 }
 
-function mediaFormatSize(format){if(format==='portrait')return{orientation:'portrait',pixabayOrientation:'vertical'};if(format==='landscape')return{orientation:'landscape',pixabayOrientation:'horizontal'};return{orientation:'',pixabayOrientation:'all'}}
+function mediaRatio(format){return {'square':1,'1:1':1,'portrait':9/16,'9:16':9/16,'landscape':16/9,'16:9':16/9,'4:5':4/5,'3:2':3/2}[format]||0}
+function mediaMatches(format,width,height){const target=mediaRatio(format);return !target||(Number(width)>0&&Number(height)>0&&Math.abs(Number(width)/Number(height)/target-1)<=0.015)}
+function mediaFormatSize(format){const ratio=mediaRatio(format);return{orientation:ratio===1?'square':ratio>1?'landscape':ratio?'portrait':'',pixabayOrientation:ratio>1?'horizontal':ratio&&ratio<1?'vertical':'all'}}
 async function searchImages(env,q,format){
  const results=[],seen=new Set(),fmt=mediaFormatSize(format);
- const add=x=>{const k=x&&x.downloadUrl;if(!k||seen.has(k))return;seen.add(k);results.push(x)}
+ const add=x=>{const k=x&&x.downloadUrl;if(!k||seen.has(k)||!mediaMatches(format,x.width,x.height))return;seen.add(k);results.push(x)}
  const pexels=String(env.PEXELS_KEY||'');
  if(pexels){
   try{
    let url='https://api.pexels.com/v1/search?per_page=18&query='+encodeURIComponent(q);
    if(fmt.orientation)url+='&orientation='+fmt.orientation;
    const r=await fetch(url,{headers:{Authorization:pexels}}),d=await r.json();
-   for(const p of d.photos||[])add({type:'image',provider:'Pexels',previewUrl:p.src?.medium||p.src?.small,downloadUrl:p.src?.original||p.src?.large2x||p.src?.large});
+   for(const p of d.photos||[])add({type:'image',width:p.width,height:p.height,previewUrl:p.src?.medium||p.src?.small,downloadUrl:p.src?.original||p.src?.large2x||p.src?.large});
   }catch(_){}
  }
  const pix=String(env.PIXABAY_KEY_IMAGES||'');
@@ -369,7 +371,7 @@ async function searchImages(env,q,format){
   try{
    const url='https://pixabay.com/api/?key='+encodeURIComponent(pix)+'&q='+encodeURIComponent(q)+'&per_page=18&safesearch=true&orientation='+fmt.pixabayOrientation;
    const r=await fetch(url),d=await r.json();
-   for(const p of d.hits||[])add({type:'image',provider:'Pixabay',previewUrl:p.webformatURL||p.previewURL,downloadUrl:p.largeImageURL||p.webformatURL});
+   for(const p of d.hits||[])add({type:'image',width:p.imageWidth,height:p.imageHeight,previewUrl:p.webformatURL||p.previewURL,downloadUrl:p.largeImageURL||p.webformatURL});
   }catch(_){}
  }
  const unsplash=String(env.UNSPLASH_ACCES_KEY||'');
@@ -378,25 +380,25 @@ async function searchImages(env,q,format){
    let url='https://api.unsplash.com/search/photos?per_page=18&query='+encodeURIComponent(q);
    if(fmt.orientation)url+='&orientation='+fmt.orientation;
    const r=await fetch(url,{headers:{Authorization:'Client-ID '+unsplash}}),d=await r.json();
-   for(const p of d.results||[])add({type:'image',provider:'Unsplash',previewUrl:p.urls?.small||p.urls?.thumb,downloadUrl:p.urls?.full||p.urls?.regular});
+   for(const p of d.results||[])add({type:'image',width:p.width,height:p.height,previewUrl:p.urls?.small||p.urls?.thumb,downloadUrl:p.urls?.full||p.urls?.regular});
   }catch(_){}
  }
  return results.slice(0,36)
 }
-async function searchVideos(env,q){
- const results=[],seen=new Set(),add=x=>{const k=x&&x.videoUrl;if(!k||seen.has(k))return;seen.add(k);results.push(x)}
+async function searchVideos(env,q,format){
+ const results=[],seen=new Set(),add=x=>{const k=x&&x.videoUrl;if(!k||seen.has(k)||!mediaMatches(format,x.width,x.height))return;seen.add(k);results.push(x)}
  const pexels=String(env.PEXELS_KEY||'');
  if(pexels){
   try{
    const r=await fetch('https://api.pexels.com/videos/search?per_page=12&query='+encodeURIComponent(q),{headers:{Authorization:pexels}}),d=await r.json();
-   for(const v of d.videos||[]){const f=(v.video_files||[]).slice().sort((a,b)=>(b.width||0)-(a.width||0))[0];if(f)add({type:'video',provider:'Pexels',previewUrl:v.image||'',videoUrl:f.link,downloadUrl:f.link})}
+   for(const v of d.videos||[]){const f=(v.video_files||[]).filter(f=>mediaMatches(format,f.width,f.height)).slice().sort((a,b)=>(b.width||0)-(a.width||0))[0];if(f)add({type:'video',width:f.width,height:f.height,previewUrl:v.image||'',videoUrl:f.link,downloadUrl:f.link})}
   }catch(_){}
  }
  const pix=String(env.PIXABAY_KEY_VIDEO||'');
  if(pix){
   try{
    const r=await fetch('https://pixabay.com/api/videos/?key='+encodeURIComponent(pix)+'&q='+encodeURIComponent(q)+'&per_page=12&safesearch=true'),d=await r.json();
-   for(const v of d.hits||[]){const f=v.videos?.medium||v.videos?.small||v.videos?.tiny||v.videos?.large;if(f)add({type:'video',provider:'Pixabay',previewUrl:v.picture_id?('https://i.vimeocdn.com/video/'+v.picture_id+'_640x360.jpg'):'',videoUrl:f.url,downloadUrl:f.url})}
+   for(const v of d.hits||[]){const f=Object.values(v.videos||{}).filter(f=>mediaMatches(format,f.width,f.height)).sort((a,b)=>(b.width||0)-(a.width||0))[0];if(f)add({type:'video',width:f.width,height:f.height,previewUrl:v.picture_id?('https://i.vimeocdn.com/video/'+v.picture_id+'_640x360.jpg'):'',videoUrl:f.url,downloadUrl:f.url})}
   }catch(_){}
  }
  return results.slice(0,24)
@@ -408,15 +410,19 @@ async function searchSounds(env,q){
  try{
   const url='https://freesound.org/apiv2/search/text/?query='+encodeURIComponent(q)+'&page_size=24&fields=id,name,previews,duration,url';
   const r=await fetch(url,{headers:{Authorization:'Token '+key}}),d=await r.json();
-  for(const s of d.results||[]){const audio=s.previews?.['preview-hq-mp3']||s.previews?.['preview-lq-mp3']||s.previews?.['preview-hq-ogg'];if(audio)results.push({type:'sound',provider:'Freesound',name:s.name||'Son',duration:Math.round(Number(s.duration||0)),audioUrl:audio,downloadUrl:s.url||audio})}
+  for(const s of d.results||[]){const audio=s.previews?.['preview-hq-mp3']||s.previews?.['preview-lq-mp3']||s.previews?.['preview-hq-ogg'];if(audio)results.push({type:'sound',name:s.name||'Son',duration:Math.round(Number(s.duration||0)),audioUrl:audio,downloadUrl:audio})}
  }catch(_){}
  return results
 }
 async function mediaImages(req,env){
  const b=await req.json().catch(()=>({})),s=await session(env,b.token);if(!s)return json({error:'Session expirée.'},401);
  const q=String(b.query||'').trim();if(!q)return json({results:[]});
- const images=await searchImages(env,q,String(b.format||'')),videos=await searchVideos(env,q);
- return json({results:[...images,...videos]})
+ return json({results:await searchImages(env,q,String(b.format||''))})
+}
+async function mediaVideos(req,env){
+ const b=await req.json().catch(()=>({})),s=await session(env,b.token);if(!s)return json({error:'Session expirée.'},401);
+ const q=String(b.query||'').trim();if(!q)return json({results:[]});
+ return json({results:await searchVideos(env,q,String(b.format||''))})
 }
 async function mediaSounds(req,env){
  const b=await req.json().catch(()=>({})),s=await session(env,b.token);if(!s)return json({error:'Session expirée.'},401);
@@ -570,6 +576,7 @@ const nxOriginalWorker = {async fetch(req,env){const u=new URL(req.url),p=u.path
  if(p==='/api/tts'&&req.method==='POST')return tts(req,env);
  if(p==='/api/media/search'&&req.method==='GET')return mediaSearch(req,env);
  if(p==='/api/media/images'&&req.method==='POST')return mediaImages(req,env);
+ if(p==='/api/media/videos'&&req.method==='POST')return mediaVideos(req,env);
  if(p==='/api/media/sounds'&&req.method==='POST')return mediaSounds(req,env);
  if(p==='/api/messagerie/send'&&req.method==='POST')return msgSend(req,env);
  if(p==='/api/messagerie/contacts'&&(req.method==='GET'||req.method==='POST'))return msgContacts(req,env);
