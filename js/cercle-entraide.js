@@ -1,13 +1,19 @@
 (function(){
 'use strict';
 var all=[];
+function nyxiaEscape(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function nyxiaInline(value){return nyxiaEscape(value).replace(/\*\*([^\n]+?)\*\*/g,'<strong>$1</strong>').replace(/__([^\n]+?)__/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g,'$1<em>$2</em>').replace(/`([^`\n]+)`/g,'<code>$1</code>');}
+function nyxiaMarkdown(value){const lines=String(value??'').replace(/\r\n?/g,'\n').split('\n');let html='',paragraph=[],list='',items=[];function flushParagraph(){if(paragraph.length){html+='<p style="margin:0 0 12px">'+paragraph.map(nyxiaInline).join('<br>')+'</p>';paragraph=[];}}function flushList(){if(list){html+='<'+list+' style="margin:0 0 12px;padding-left:24px">'+items.map(v=>'<li>'+nyxiaInline(v)+'</li>').join('')+'</'+list+'>';list='';items=[];}}for(const line of lines){if(!line.trim()){flushParagraph();flushList();continue;}const heading=line.match(/^(#{1,6})\s+(.+)$/),unordered=line.match(/^\s*[-*+]\s+(.+)$/),ordered=line.match(/^\s*\d+[.)]\s+(.+)$/);if(heading){flushParagraph();flushList();const level=Math.min(heading[1].length+1,6);html+='<h'+level+'>'+nyxiaInline(heading[2])+'</h'+level+'>';}else if(unordered||ordered){flushParagraph();const type=unordered?'ul':'ol';if(list&&list!==type)flushList();list=type;items.push((unordered||ordered)[1]);}else{flushList();paragraph.push(line);}}flushParagraph();flushList();return html;}
+function nyxiaPlain(value){return String(value??'').replace(/\*\*|__/g,'').replace(/(^|[^*])\*([^*\n]+)\*/g,'$1$2').replace(/`([^`]+)`/g,'$1').replace(/^#{1,6}\s+/gm,'');}
+function nyxiaCommissions(product){return '<p class="nyxia-commissions" style="margin:14px 0;color:#F4C842">Voir l’offre pour connaître les commissions.</p>';}
+
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function money(p){var n=Number(p.price||0);if(!isFinite(n)||n<=0)return'';try{return n.toLocaleString('fr-CA',{style:'currency',currency:'CAD'})}catch(_){return n.toFixed(2)+' $'}}
 function render(list){
  var h=document.getElementById('cards');
  if(!list.length){h.innerHTML='<div class="empty">Aucun produit du Cercle ne correspond à cette recherche.</div>';return}
  h.innerHTML=list.map(function(p,i){
-   var d=String(p.description_short||'').slice(0,155);
+   var d=nyxiaPlain(p.description_short||'').slice(0,155);
    return '<article class="card">'
     +'<div class="media">'+(p.image_url?'<img src="'+esc(p.image_url)+'" alt="'+esc(p.title||'')+'" loading="lazy">':'<span class="fallback">💜</span>')+'</div>'
     +'<div class="body"><div class="meta"><span>Répertoire NyXia</span><span>'+(p.join_type==='paid'?'Accès promoteur':'Cercle')+'</span></div>'
@@ -21,7 +27,7 @@ function render(list){
 function openDetail(p){
  document.getElementById('detail-title').textContent=p.title||'Produit du Cercle';
  var img=document.getElementById('detail-image');if(p.image_url){img.src=p.image_url;img.hidden=false}else{img.hidden=true;img.removeAttribute('src')}
- document.getElementById('detail-text').textContent=p.description_short||'';
+ document.getElementById('detail-text').innerHTML=nyxiaMarkdown(p.description_long||p.description_short||'')+nyxiaCommissions(p);
  var actions=[];
  var offer=String(p.affiliate_link||'').trim();
  if(offer)actions.push('<a class="btn" href="'+esc(offer)+'" target="_blank" rel="noopener">Voir l’offre</a>');
@@ -41,3 +47,4 @@ fetch('/api/nyxia-universe/repertoire').then(function(r){return r.json().then(fu
  render(all);
 }).catch(function(e){document.getElementById('cards').innerHTML='<div class="error">'+esc(e.message)+'</div>'});
 })();
+
