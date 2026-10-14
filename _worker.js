@@ -653,7 +653,7 @@ function nxPremiumHydrateSource(text){
   return text.replace(/\.then\(\s*function\s*\(\s*data\s*\)\s*\{/g,match=>match+'\n'+injection+'\n')
     .replace(/\.then\(\s*data\s*=>\s*\{/g,match=>match+'\n'+injection+'\n');
 }
-export default {
+const nyxBookingOriginalWorker = {
   async fetch(request,env,ctx){
     const response=await nxOriginalWorker.fetch(request,env,ctx);
     const path=new URL(request.url).pathname;
@@ -676,5 +676,27 @@ export default {
       }
     }
     return response;
+  }
+};
+
+
+// Liaison commune de l’index aux réservations : aucun écran ni formulaire ajouté.
+export default {
+  ...nyxBookingOriginalWorker,
+  async fetch(request,env,ctx){
+    const page=new URL(request.url).pathname.replace(/\/+$/,'')||'/';
+    const index=request.method==='GET'&&['/','/index','/index.html'].includes(page);
+    let input=request;
+    if(index){const h=new Headers(request.headers);h.delete('If-None-Match');h.delete('If-Modified-Since');input=new Request(request,{headers:h});}
+    const response=await nyxBookingOriginalWorker.fetch(input,env,ctx);
+    if(!index||!response.ok||!(response.headers.get('Content-Type')||'').includes('text/html'))return response;
+    const text=await response.clone().text();
+    if(text.includes('/closer/booking-bridge.js'))return response;
+    const position=text.toLowerCase().lastIndexOf('</body>');
+    if(position<0)return response;
+    const tag='<script src="https://univers.nyxia.top/closer/booking-bridge.js" data-nyxia-portal defer></script>\n';
+    const html=text.slice(0,position)+tag+text.slice(position),headers=new Headers(response.headers);
+    headers.delete('Content-Length');headers.delete('ETag');
+    return new Response(html,{status:response.status,headers});
   }
 };
