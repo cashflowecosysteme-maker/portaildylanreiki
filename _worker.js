@@ -655,7 +655,7 @@ function nxPremiumHydrateSource(text){
 }
 export default {
   async fetch(request,env,ctx){
-    const live=await nxLiveApi(request,env,ctx);if(live)return live;
+    const flow=await nxFormationFlowApi(request,env,ctx);if(flow)return flow;const live=await nxLiveApi(request,env,ctx);if(live)return live;
     const response=await nxOriginalWorker.fetch(request,env,ctx);
     const path=new URL(request.url).pathname;
     if(path==='/api/check-auth'&&response.ok){
@@ -705,4 +705,25 @@ async function nxLiveApi(request,env,ctx){
  const id=t.key.split(':').slice(3).join(':'),s={email:auth.email,firstname:auth.firstname||auth.first_name||auth.userName||''};
  const result=await NX_LIVE_OPEN(env,s,agent,id);
  return result?json(result):json({error:'Formation introuvable.'},404);
+}
+
+async function NX_FLOW_LIST(env,s,agent){const fs=await formations(env,agent),{st}=await readFormationProgress(env,s,agent,fs);return fs.map(f=>({id:f.id,titre:f.titre,hasProgress:!!st.progress?.[f.id]?.started,status:formationStatus(fs,st,f.id)}))}
+async function NX_FLOW_TURN(env,s,agent,id,advance,mode){return formationTurn(env,s,agent,advance?'suite':'reprendre ma formation',id,mode)}
+async function nxFormationFlowApi(request,env,ctx){
+ const u=new URL(request.url);if(u.pathname!=='/api/personnage/formation')return null;
+ const b=await request.clone().json().catch(()=>({})),agent=String(b.agent||'').toLowerCase();
+ if(!NX_PREMIUM_KEYS().includes(agent))return json({error:'Personnage non disponible.'},403);
+ const check=await nxOriginalWorker.fetch(new Request(new URL('/api/check-auth',request.url),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:b.token||''})}),env,ctx);
+ const auth=await check.json().catch(()=>({}));if(!auth.valid)return json({error:'Session expirée.'},401);
+ if(typeof requireEricAccess==='function'&&agent==='eric'){const blocked=await requireEricAccess(env,auth);if(blocked)return blocked}
+ const s={...auth,firstname:auth.firstname||auth.first_name||''};
+ const list=await NX_FLOW_LIST(env,s,agent);
+ if(b.action==='list')return json({formations:list});
+ const selected=list.find(f=>f.id===b.formationId)||(!b.formationId?list.find(f=>f.status!=='locked'&&f.status!=='completed'):null);
+ if(!selected)return json({error:'Formation introuvable.'},404);
+ if(selected.status==='locked')return json({error:'Cette formation n’est pas encore débloquée.'},403);
+ const result=await NX_FLOW_TURN(env,s,agent,selected.id,b.action==='advance',selected.status==='completed'?'review':b.mode||'');
+ if(!result)return json({error:'Formation introuvable.'},404);
+ result.content=String(result.content||'').replace(/\n\n— [^\n]*(?:[«“]suite[»”]|dis [«“]suite[»”])[^\n]*\s*$/i,'');
+ return json({...result,formationId:result.formationId||selected.id});
 }

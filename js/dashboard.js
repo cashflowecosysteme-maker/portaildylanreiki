@@ -895,3 +895,16 @@ var PORTAL_AGENT_META = {"nyxia":{"key":"nyxia","name":"NyXia","sub":"Technologi
     }
     function escHtml(str) { var d = document.createElement('div'); d.textContent = str; return d.innerHTML }
   
+
+;(function(){
+ window.addEventListener('message',function(e){
+  if(e.origin!==location.origin||!e.data||e.data.type!=='nyxia_open_formation')return
+  var frame=document.getElementById('parcours-iframe');if(!frame||e.source!==frame.contentWindow)return
+  var agent=String(e.data.agent||'').toLowerCase();if(typeof AGENT_PAGES==='undefined'||!AGENT_PAGES[agent]||!e.data.formationId)return
+  e.stopImmediatePropagation()
+  var payload={type:'nyxia_open_formation',agent:agent,formationId:String(e.data.formationId),status:String(e.data.status||''),mode:e.data.mode||'',requestId:Date.now()+'-'+Math.random().toString(36).slice(2)}
+  try{sessionStorage.setItem('nyxia:formation:open:'+agent,JSON.stringify(payload))}catch(_){}
+  openAgentTab(agent)
+  var chat=document.getElementById('agent-iframe');if(chat&&chat.contentWindow)try{chat.contentWindow.postMessage(payload,location.origin)}catch(_){}
+ },true)
+})();

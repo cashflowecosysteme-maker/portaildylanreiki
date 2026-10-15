@@ -73,8 +73,8 @@ function nyxiaUserContextText() {
       if (!clientName) { window.location.href = '/login.html'; return }
       NYXIA_USER.firstname = clientName
       sessionStorage.setItem('nyxia_firstname', clientName)
-      nxLiveRefresh().then(function(){init()})
-    }).catch(function(){ init() })
+      nxLiveRefresh().then(function(){init();nxFlowInit()})
+    }).catch(function(){ init();nxFlowInit() })
   })()
 
   var chatHistories = {}; chatHistories[_currentAgent] = []
@@ -91,6 +91,7 @@ function nyxiaUserContextText() {
   }
 
   function nouveauChat() {
+    if(nxFlowBusy)return;nxFlowSelected=null;nxFlowRemember();document.querySelectorAll('.nx-uniform-next').forEach(function(b){b.remove()});nxFlowRefresh();
     var name = (ALPHA_INFO[_currentAgent] && ALPHA_INFO[_currentAgent].name) || 'ce personnage'
     if (!confirm('Effacer la conversation avec ' + name + ' ?\n\nTu ne pourras pas la récupérer.')) return
     try { sessionStorage.removeItem(CHAT_STORAGE_KEY) } catch (e) {}
@@ -242,52 +243,11 @@ function nyxiaUserContextText() {
 
   var _livingFormationInfo = null
 
-  function refreshLivingFormationButton() {
-    var wrap = document.getElementById('formation-launch-wrap')
-    var btn = document.getElementById('formation-launch-btn')
-    if (!wrap || !btn || !sessionToken || !_currentAgent) return
-    wrap.style.display = 'none'
-    fetch('/api/formation/list?token=' + encodeURIComponent(sessionToken) + '&agent=' + encodeURIComponent(_currentAgent), { cache:'no-store' })
-      .then(function(r){ if(!r.ok) throw new Error('Formation indisponible'); return r.json() })
-      .then(function(data){
-        var list = Array.isArray(data.formations) ? data.formations : []
-        if (!list.length) { _livingFormationInfo = null; wrap.style.display='none'; return }
-        _livingFormationInfo = { hasFormations:true }
-        btn.disabled = false
-        btn.textContent = '🎓 Suivre mon parcours'
-        btn.title = 'Voir mes formations dans Mon Parcours'
-        wrap.style.display = 'block'
-      })
-      .catch(function(){ _livingFormationInfo=null; wrap.style.display='none' })
-  }
+  function refreshLivingFormationButton() { return nxFlowRefresh(); }
 
-  function launchLivingFormation() {
-    if (!_livingFormationInfo) { refreshLivingFormationButton(); return }
-    try { window.parent.postMessage({type:'nyxia_open_parcours'}, '*') } catch (_) {}
-  }
+  function launchLivingFormation() { return nxFlowLaunch(); }
 
-  function openFormationFromParcours(data) {
-    if (!data || String(data.agent||'') !== String(_currentAgent)) return
-    var formationId = String(data.formationId||'').trim()
-    if (!formationId) return
-    fetch('/api/formation/open', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token:sessionToken,agent:_currentAgent,formationId:formationId})
-    })
-    .then(function(r){ return r.json().then(function(d){ return {ok:r.ok,data:d} }) })
-    .then(function(res){
-      if(!res.ok)throw new Error(res.data.error||'Formation indisponible.')
-      _selectedFormation={id:formationId,mode:res.data.mode||'follow'}
-      var content=res.data.content||''
-      if(content){
-        addBotMessage(content)
-        currentHistory().push({role:'assistant',content:content})
-        saveChatToStorage()
-      }
-    })
-    .catch(function(e){ addBotMessage('⚠ '+e.message) })
-  }
+  function openFormationFromParcours(data) { return nxFlowConsumeOpen(data); }
 
   window.addEventListener('message', function(e){
     if(e.data&&e.data.type==='nyxia_open_formation')openFormationFromParcours(e.data)
@@ -594,6 +554,68 @@ function nyxiaUserContextText() {
     sendMessageText(text || '📎 Fichier joint', false, {})
   }
 
+  ;(function(){var style=document.createElement('style');style.textContent='body:has(.nx-uniform-next,.nx-live-formation-trigger) #formation-launch-wrap{display:none!important}';document.head.appendChild(style)})();
+  var nxFlowSelected = null
+  var nxFlowBusy = false
+  var nxFlowResume = false
+  var nxFlowReady = false
+  var nxFlowLastOpen = ''
+  var nxFlowList = []
+  function nxFlowStyle(button) {
+    button.style.cssText='display:inline-block;align-self:flex-start;width:auto;max-width:100%;margin-top:10px;padding:8px 14px;border:1px solid rgba(233,204,128,.4);border-radius:10px;background:rgba(6,10,24,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#e9cc80;font:inherit;font-weight:400;line-height:1.4;cursor:pointer;box-shadow:0 0 10px rgba(233,204,128,.06)'
+  }
+  function nxFlowRemember() {try{if(nxFlowSelected)sessionStorage.setItem(CHAT_STORAGE_KEY+'_flow',JSON.stringify(nxFlowSelected));else sessionStorage.removeItem(CHAT_STORAGE_KEY+'_flow')}catch(_){}}
+  function nxFlowWrap() {var wrap=document.getElementById('formation-launch-wrap');if(wrap)wrap.style.display=(document.querySelector('.nx-uniform-next,.nx-live-formation-trigger')?'none':(nxFlowSelected||nxFlowList.some(function(f){return f.status!=='locked'&&f.status!=='completed'}))?'block':'none')}
+  function nxFlowStep(host) {
+    document.querySelectorAll('.nx-uniform-next,.nx-live-formation-trigger').forEach(function(b){b.remove()})
+    if(!nxFlowSelected||!host){nxFlowWrap();return}
+    var b=document.createElement('button');b.type='button';b.className='nx-uniform-next';b.textContent=nxFlowResume?'Reprendre ma formation':nxFlowSelected.mode==='review'?'Continuer la révision':'Continuer la formation';nxFlowStyle(b);b.disabled=nxFlowBusy;b.onclick=function(){nxFlowRequest(nxFlowSelected.id,!nxFlowResume,nxFlowSelected.mode)};host.appendChild(b);nxFlowWrap()
+  }
+  function nxFlowLastHost() {var box=document.getElementById('chat-messages-'+_currentAgent),rows=box&&box.querySelectorAll('.msg.bot');return rows&&rows.length?(rows[rows.length-1].lastElementChild||rows[rows.length-1]):null}
+  function nxFlowCall(body) {return fetch('/api/personnage/formation',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({token:sessionToken,agent:_currentAgent},body))}).then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.error||'Formation indisponible.');return d})})}
+  function nxFlowRefresh() {
+    if(!sessionToken)return Promise.resolve()
+    return nxFlowCall({action:'list'}).then(function(d){nxFlowList=d.formations||[];var btn=document.getElementById('formation-launch-btn')||document.getElementById('formation-launch');
+      if(!btn&&nxFlowList.some(function(f){return f.status!=='locked'&&f.status!=='completed'})){var composer=document.getElementById('chat-input');var wrap=document.createElement('div');wrap.id='formation-launch-wrap';wrap.style.cssText='padding:8px 24px;flex-shrink:0';btn=document.createElement('button');btn.id='formation-launch';btn.type='button';wrap.appendChild(btn);var messages=document.getElementById('chat-messages-'+_currentAgent);if(messages&&messages.parentNode)messages.parentNode.insertBefore(wrap,messages.nextSibling)}
+      if(btn){var current=nxFlowSelected||nxFlowList.find(function(f){return f.status!=='locked'&&f.status!=='completed'});btn.textContent=nxFlowSelected||current&&current.hasProgress?'Reprendre ma formation':'Commencer ma formation';nxFlowStyle(btn);btn.onclick=function(){nxFlowLaunch()};btn.disabled=nxFlowBusy}
+      nxFlowWrap();return d
+    }).catch(function(){})
+  }
+  function nxFlowRequest(id,advance,mode) {
+    if(nxFlowBusy)return Promise.resolve(false)
+    nxFlowBusy=true;document.querySelectorAll('.nx-uniform-next,#formation-launch-btn,#formation-launch').forEach(function(b){b.disabled=true})
+    return nxFlowCall({action:advance?'advance':'open',formationId:id,mode:mode||''}).then(function(d){
+      nxFlowResume=false;nxFlowSelected=(d.formationDone||d.reviewDone)?null:{id:d.formationId||id,mode:d.review?'review':mode||'follow'};nxFlowRemember()
+      if(d.content){addBotMessage(d.content);if(typeof currentHistory==='function')currentHistory().push({role:'assistant',content:d.content});else if(typeof chatHistories!=='undefined'&&chatHistories[_currentAgent])chatHistories[_currentAgent].push({role:'assistant',content:d.content});if(typeof saveChatToStorage==='function')saveChatToStorage()}
+      if(!nxFlowSelected)document.querySelectorAll('.nx-uniform-next').forEach(function(b){b.remove()})
+      try{window.parent.postMessage({type:'nyxia_formation_progress_changed'},location.origin)}catch(_){}
+      return true
+    }).catch(function(){nxFlowSelected={id:id,mode:mode||'follow'};nxFlowRemember();nxFlowResume=true;var host=nxFlowLastHost();if(nxFlowSelected)nxFlowStep(host);return false}).finally(function(){nxFlowBusy=false;document.querySelectorAll('.nx-uniform-next,#formation-launch-btn,#formation-launch').forEach(function(b){b.disabled=false});nxFlowRefresh()})
+  }
+  function nxFlowLaunch() {
+    if(nxFlowSelected)return nxFlowRequest(nxFlowSelected.id,!nxFlowResume,nxFlowSelected.mode)
+    var f=nxFlowList.find(function(f){return f.status!=='locked'&&f.status!=='completed'});
+    if(f)return nxFlowRequest(f.id,false,f.status==='completed'?'review':'follow')
+    return nxFlowRefresh().then(function(){var f=nxFlowList.find(function(f){return f.status!=='locked'});if(f)return nxFlowRequest(f.id,false,'follow')})
+  }
+  function nxFlowConsumeOpen(data) {
+    if(!nxFlowReady||!data||data.agent!==_currentAgent||!data.formationId)return
+    if(data.requestId&&data.requestId===nxFlowLastOpen)return
+    if(data.requestId)nxFlowLastOpen=data.requestId
+    try{sessionStorage.removeItem('nyxia:formation:open:'+_currentAgent)}catch(_){}
+    nxFlowRequest(String(data.formationId),false,data.status==='completed'||data.mode==='review'?'review':'follow')
+  }
+  function nxFlowInit() {
+    nxFlowReady=true
+    try{nxFlowSelected=JSON.parse(sessionStorage.getItem(CHAT_STORAGE_KEY+'_flow')||'null')}catch(_){}
+    if(nxFlowSelected){nxFlowResume=true;nxFlowStep(nxFlowLastHost())}
+    var pending=null;try{pending=JSON.parse(sessionStorage.getItem('nyxia:formation:open:'+_currentAgent)||'null')}catch(_){}
+    if(!pending){var params=new URLSearchParams(location.search);if(params.get('formationId'))pending={agent:_currentAgent,formationId:params.get('formationId')}}
+    if(pending)nxFlowConsumeOpen(pending)
+    nxFlowRefresh()
+  }
+  window.addEventListener('message',function(e){if(e.source!==window.parent||e.origin!==location.origin||!e.data)return;if(e.data.agent!==_currentAgent)return;if(['nyxia_open_formation','nyxia_formation_open'].indexOf(e.data.type)<0)return;e.stopImmediatePropagation();try{sessionStorage.setItem('nyxia:formation:open:'+_currentAgent,JSON.stringify(e.data))}catch(_){};nxFlowConsumeOpen(e.data)},true)
+
   var nxRenderingStored = false
   var nxLiveSending = false
   var nxLiveProfile = null
@@ -627,6 +649,7 @@ function nyxiaUserContextText() {
       }).catch(function(){return null}).finally(function(){nxLiveRefreshPromise=null})
   }
   function sendMessageText(text, fromVoice, options) {
+    if(nxFlowBusy)return
     if (nxLiveSending) return
     nxLiveSending = true
     if (document.getElementById('btn-send') && document.getElementById('btn-send').disabled) {nxLiveSending=false;return}
@@ -634,6 +657,7 @@ function nyxiaUserContextText() {
     return nxLiveRefresh().then(function(){nxLiveSending=false;return nxSendMessageTextOriginal(text,fromVoice,options)})
   }
   function nxLiveOffer(host,text) {
+    if(nxFlowSelected||nxFlowBusy)return
     if(nxRenderingStored)return
     var phrase=nxLivePendingPhrase;nxLivePendingPhrase=''
     if(!nxLiveProfile||!host)return
@@ -643,7 +667,7 @@ function nyxiaUserContextText() {
     document.querySelectorAll('.nx-live-formation-trigger').forEach(function(b){b.remove()})
     var b=document.createElement('button');b.type='button';b.className='nx-live-formation-trigger';b.textContent=t.label||'Commencer la formation'
     b.style.cssText='align-self:flex-start;width:auto;max-width:100%;margin-top:8px;padding:8px 14px;border:1px solid rgba(233,204,128,.4);border-radius:10px;background:rgba(6,10,24,.72);backdrop-filter:blur(10px);color:#e9cc80;font:inherit;font-weight:400;cursor:pointer'
-    b.onclick=function(){if(b.disabled)return;b.disabled=true;fetch('/api/personnage/formation/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:sessionToken,agent:_currentAgent,key:t.key})}).then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.error||'');return d})}).then(function(d){if(d.content){b.remove();addBotMessage(d.content);if(typeof currentHistory==='function')currentHistory().push({role:'assistant',content:d.content});else if(typeof chatHistories!=='undefined'&&chatHistories[_currentAgent])chatHistories[_currentAgent].push({role:'assistant',content:d.content});if(typeof saveChatToStorage==='function')saveChatToStorage()}}).catch(function(){b.disabled=false})}
+    b.onclick=function(){if(nxFlowBusy)return;nxFlowRequest(t.key.split(':').slice(3).join(':'),false,'follow')}
     host.appendChild(b)
     var wrap=document.getElementById('formation-launch-wrap');if(wrap)wrap.style.display='none'
   }
@@ -1023,10 +1047,11 @@ function nyxiaUserContextText() {
     }); acts.appendChild(pdfBtn)
 
     nxLiveOffer(wrapper,text)
+    if(nxFlowSelected&&!nxRenderingStored)nxFlowStep(wrapper)
     wrapper.appendChild(acts)
     div.innerHTML = avatarHtmlFor(msgAgent)
     div.appendChild(wrapper)
-    msgs.appendChild(div); msgs.scrollTop = msgs.scrollHeight
+    msgs.appendChild(div); nxFlowWrap(); msgs.scrollTop = msgs.scrollHeight
   }
 
   function addUserMessage(text) {
