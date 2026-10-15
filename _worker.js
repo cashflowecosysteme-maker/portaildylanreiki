@@ -109,7 +109,7 @@ async function checkAccess(env,email,includePending=false){return nxAccess(env,e
 async function login(req,env){return nxLogin(req,env)}
 async function logout(req,env){let t='';try{const b=await req.json();t=String(b.token||'')}catch(_){}if(!t)t=cookieValue(req,'nyxia_portal_session');if(t){try{await env.CASHFLOW_KV.delete('portal:session:'+t)}catch(_){}}return json({success:true},200,{'Set-Cookie':clearSessionCookie()})}
 async function requireSession(req,env){const u=new URL(req.url);let t=u.searchParams.get('token')||u.searchParams.get('t')||'';if(req.method!=='GET'){try{const c=req.clone();const b=await c.json();t=b.token||t}catch(_){}}return session(env,t)}
-async function retrieve(env,agent,q){if(!env.AI||!env.VECTORIZE_INDEX||!q)return'';try{const e=await env.AI.run('@cf/baai/bge-m3',{text:[q]}),r=await env.VECTORIZE_INDEX.query(e.data[0],{topK:6,returnMetadata:'all',namespace:agent});return(r.matches||[]).filter(x=>x.score>.35).map(x=>x.metadata?.texte_original||'').filter(Boolean).join('\n\n---\n\n')}catch(_){return''}}
+async function retrieve(env,agent,q){if(!env.AI||!env.VECTORIZE_INDEX||!q)return'';try{const e=await env.AI.run('@cf/baai/bge-m3',{text:[q]}),r=await env.VECTORIZE_INDEX.query(e.data[0],{topK:6,returnMetadata:'all',namespace:((await nxPremiumRead(env,agent))?.vectorNamespace||agent)});return(r.matches||[]).filter(x=>x.score>.35).map(x=>x.metadata?.texte_original||'').filter(Boolean).join('\n\n---\n\n')}catch(_){return''}}
 
 const PROFILE_PREFIX='nyxia:personnage-profil:';
 async function runtimeAgentProfile(env,agent){
@@ -653,8 +653,9 @@ function nxPremiumHydrateSource(text){
   return text.replace(/\.then\(\s*function\s*\(\s*data\s*\)\s*\{/g,match=>match+'\n'+injection+'\n')
     .replace(/\.then\(\s*data\s*=>\s*\{/g,match=>match+'\n'+injection+'\n');
 }
-const nyxBookingOriginalWorker = {
+export default {
   async fetch(request,env,ctx){
+    const live=await nxLiveApi(request,env,ctx);if(live)return live;
     const response=await nxOriginalWorker.fetch(request,env,ctx);
     const path=new URL(request.url).pathname;
     if(path==='/api/check-auth'&&response.ok){
@@ -679,24 +680,29 @@ const nyxBookingOriginalWorker = {
   }
 };
 
-
-// Liaison commune de l’index aux réservations : aucun écran ni formulaire ajouté.
-export default {
-  ...nyxBookingOriginalWorker,
-  async fetch(request,env,ctx){
-    const page=new URL(request.url).pathname.replace(/\/+$/,'')||'/';
-    const index=request.method==='GET'&&['/','/index','/index.html'].includes(page);
-    let input=request;
-    if(index){const h=new Headers(request.headers);h.delete('If-None-Match');h.delete('If-Modified-Since');input=new Request(request,{headers:h});}
-    const response=await nyxBookingOriginalWorker.fetch(input,env,ctx);
-    if(!index||!response.ok||!(response.headers.get('Content-Type')||'').includes('text/html'))return response;
-    const text=await response.clone().text();
-    if(text.includes('/closer/booking-bridge.js'))return response;
-    const position=text.toLowerCase().lastIndexOf('</body>');
-    if(position<0)return response;
-    const tag='<script src="https://univers.nyxia.top/closer/booking-bridge.js" data-nyxia-portal defer></script>\n';
-    const html=text.slice(0,position)+tag+text.slice(position),headers=new Headers(response.headers);
-    headers.delete('Content-Length');headers.delete('ETag');
-    return new Response(html,{status:response.status,headers});
-  }
-};
+const NX_LIVE_PORTAL=env=>PORTAL.id;
+async function NX_LIVE_OPEN(env,s,agent,id){const fs=await formations(env,agent);if(!fs.some(f=>f.id===id))return null;return formationTurn(env,s,agent,'commencer ma formation',id)}
+async function nxLiveApi(request,env,ctx){
+ const u=new URL(request.url);if(!['/api/personnage/live','/api/personnage/formation/open'].includes(u.pathname))return null;
+ const b=request.method==='POST'?await request.clone().json().catch(()=>({})):{};
+ const token=String(b.token||u.searchParams.get('token')||''),agent=String(b.agent||u.searchParams.get('agent')||'').toLowerCase();
+ if(!NX_PREMIUM_KEYS().includes(agent))return json({error:'Personnage non disponible.'},403);
+ const check=await nxOriginalWorker.fetch(new Request(new URL('/api/check-auth',request.url),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}),env,ctx);
+ let auth;try{auth=await check.json()}catch(_){return json({error:'Session expirée.'},401)}
+ if(!auth.valid)return json({error:'Session expirée.'},401);
+ if(typeof requireEricAccess==='function'&&agent==='eric'){const blocked=await requireEricAccess(env,auth);if(blocked)return blocked;}
+ const raw=await nxPremiumRead(env,agent),p=raw||{};
+ const portal=NX_LIVE_PORTAL(env);
+ const allowed=(p.formationTriggers||[]).filter(t=>t.active!==false&&String(t.key||'').startsWith('formation:'+portal+':'+agent+':'));
+ if(u.pathname==='/api/personnage/live'){
+   const pub={};for(const k of ['name','sub','image','welcomeVideo','greeting','suggestions','resources'])if(Object.prototype.hasOwnProperty.call(p,k))pub[k]=p[k];
+   if(Object.prototype.hasOwnProperty.call(p,'visibleRole'))pub.sub=p.visibleRole;
+   if(Object.prototype.hasOwnProperty.call(p,'welcomeMessage'))pub.greeting=p.welcomeMessage;
+   pub.formationTriggers=allowed;
+   return new Response(JSON.stringify({profile:pub}),{headers:{'Content-Type':'application/json','Cache-Control':'private, no-store'}});
+ }
+ const t=allowed.find(t=>t.key===b.key);if(!t)return json({error:'Formation non disponible pour ce personnage.'},403);
+ const id=t.key.split(':').slice(3).join(':'),s={email:auth.email,firstname:auth.firstname||auth.first_name||auth.userName||''};
+ const result=await NX_LIVE_OPEN(env,s,agent,id);
+ return result?json(result):json({error:'Formation introuvable.'},404);
+}

@@ -73,7 +73,7 @@ function nyxiaUserContextText() {
       if (!clientName) { window.location.href = '/login.html'; return }
       NYXIA_USER.firstname = clientName
       sessionStorage.setItem('nyxia_firstname', clientName)
-      init()
+      nxLiveRefresh().then(function(){init()})
     }).catch(function(){ init() })
   })()
 
@@ -117,7 +117,8 @@ function nyxiaUserContextText() {
     } catch (e) {}
   }
 
-  function renderStoredMessages() {
+  function renderStoredMessages() {nxRenderingStored=true;try{return nxRenderStoredMessagesOriginal()}finally{nxRenderingStored=false}}
+  function nxRenderStoredMessagesOriginal() {
     var list = chatHistories[_currentAgent] || []
     if (!list.length) return
     var msgs = document.getElementById('chat-messages-' + _currentAgent)
@@ -593,7 +594,63 @@ function nyxiaUserContextText() {
     sendMessageText(text || '📎 Fichier joint', false, {})
   }
 
+  var nxRenderingStored = false
+  var nxLiveSending = false
+  var nxLiveProfile = null
+  var nxLivePendingPhrase = ''
+  var nxLiveRefreshPromise = null
+  function nxLiveNormalize(value) { return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim() }
+  function nxLiveRefresh() {
+    if (!sessionToken || typeof _currentAgent === 'undefined') return Promise.resolve(null)
+    if (nxLiveRefreshPromise) return nxLiveRefreshPromise
+    return nxLiveRefreshPromise = fetch('/api/personnage/live?token='+encodeURIComponent(sessionToken)+'&agent='+encodeURIComponent(_currentAgent),{cache:'no-store'})
+      .then(function(r){if(!r.ok)throw new Error();return r.json()})
+      .then(function(data){var p=data.profile;if(!p)return null;nxLiveProfile=p
+        if(typeof ALPHA_INFO!=='undefined'&&ALPHA_INFO[_currentAgent])Object.assign(ALPHA_INFO[_currentAgent],p)
+        if(typeof AGENT_IMAGES!=='undefined'&&Object.prototype.hasOwnProperty.call(p,'image'))AGENT_IMAGES[_currentAgent]=p.image
+        if(typeof AGENT_WELCOME_VIDEO!=='undefined'&&Object.prototype.hasOwnProperty.call(p,'welcomeVideo'))AGENT_WELCOME_VIDEO[_currentAgent]=p.welcomeVideo
+        if(typeof AGENT_SUGGESTIONS!=='undefined'&&Array.isArray(p.suggestions))AGENT_SUGGESTIONS[_currentAgent]=p.suggestions
+        if(typeof PORTAL_AGENT!=='undefined')PORTAL_AGENT=Object.assign({},PORTAL_AGENT||{},p)
+        var name=document.getElementById('chat-header-name'),sub=document.getElementById('chat-header-sub')
+        if(name&&Object.prototype.hasOwnProperty.call(p,'name'))name.textContent=p.name
+        if(sub&&Object.prototype.hasOwnProperty.call(p,'sub'))sub.textContent=p.sub
+        if(typeof updateHeaderAvatar==='function')updateHeaderAvatar(_currentAgent)
+        if(typeof renderAgentSuggestions==='function')renderAgentSuggestions()
+        else if(Array.isArray(p.suggestions)){
+          var suggestions=document.getElementById('suggestions')
+          if(suggestions){suggestions.innerHTML='';p.suggestions.slice(0,4).forEach(function(item){var button=document.createElement('button');button.type='button';button.className='sug-chip';button.textContent=typeof item==='string'?item:String(item.label||item.message||'');button.onclick=function(){if(typeof useSuggestion==='function')useSuggestion(button);else sendMessageText(typeof item==='string'?item:(item.message||item.label||''),false,{})};suggestions.appendChild(button)})}
+        }
+
+        var greeting=document.querySelector('[data-welcome-text="1"] .msg-bubble')
+        if(greeting&&Object.prototype.hasOwnProperty.call(p,'greeting'))greeting.innerHTML=cleanMarkdown(escHtml(typeof nxPersonalizeText==='function'?nxPersonalizeText(p.greeting):p.greeting)).replace(/\n/g,'<br>')
+        return p
+      }).catch(function(){return null}).finally(function(){nxLiveRefreshPromise=null})
+  }
   function sendMessageText(text, fromVoice, options) {
+    if (nxLiveSending) return
+    nxLiveSending = true
+    if (document.getElementById('btn-send') && document.getElementById('btn-send').disabled) {nxLiveSending=false;return}
+    nxLivePendingPhrase=text
+    return nxLiveRefresh().then(function(){nxLiveSending=false;return nxSendMessageTextOriginal(text,fromVoice,options)})
+  }
+  function nxLiveOffer(host,text) {
+    if(nxRenderingStored)return
+    var phrase=nxLivePendingPhrase;nxLivePendingPhrase=''
+    if(!nxLiveProfile||!host)return
+    var haystack=' '+nxLiveNormalize(phrase+' '+text)+' '
+    var t=(nxLiveProfile.formationTriggers||[]).find(function(t){return t.active!==false&&(t.phrases||[]).some(function(p){var n=nxLiveNormalize(p);return n&&haystack.indexOf(' '+n+' ')!==-1})})
+    if(!t)return
+    document.querySelectorAll('.nx-live-formation-trigger').forEach(function(b){b.remove()})
+    var b=document.createElement('button');b.type='button';b.className='nx-live-formation-trigger';b.textContent=t.label||'Commencer la formation'
+    b.style.cssText='align-self:flex-start;width:auto;max-width:100%;margin-top:8px;padding:8px 14px;border:1px solid rgba(233,204,128,.4);border-radius:10px;background:rgba(6,10,24,.72);backdrop-filter:blur(10px);color:#e9cc80;font:inherit;font-weight:400;cursor:pointer'
+    b.onclick=function(){if(b.disabled)return;b.disabled=true;fetch('/api/personnage/formation/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:sessionToken,agent:_currentAgent,key:t.key})}).then(function(r){return r.json().then(function(d){if(!r.ok)throw new Error(d.error||'');return d})}).then(function(d){if(d.content){b.remove();addBotMessage(d.content);if(typeof currentHistory==='function')currentHistory().push({role:'assistant',content:d.content});else if(typeof chatHistories!=='undefined'&&chatHistories[_currentAgent])chatHistories[_currentAgent].push({role:'assistant',content:d.content});if(typeof saveChatToStorage==='function')saveChatToStorage()}}).catch(function(){b.disabled=false})}
+    host.appendChild(b)
+    var wrap=document.getElementById('formation-launch-wrap');if(wrap)wrap.style.display='none'
+  }
+  window.addEventListener('focus',function(){nxLiveRefresh()})
+  setTimeout(function(){nxLiveRefresh()},0)
+
+  function nxSendMessageTextOriginal(text, fromVoice, options) {
     _inputWasVoice = !!fromVoice
     var attachmentToSend = _currentAttachment ? JSON.parse(JSON.stringify(_currentAttachment)) : null
     var displayText = text
@@ -965,6 +1022,7 @@ function nyxiaUserContextText() {
       w.document.close(); setTimeout(function() { w.print() }, 300)
     }); acts.appendChild(pdfBtn)
 
+    nxLiveOffer(wrapper,text)
     wrapper.appendChild(acts)
     div.innerHTML = avatarHtmlFor(msgAgent)
     div.appendChild(wrapper)
