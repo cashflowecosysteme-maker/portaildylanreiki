@@ -432,7 +432,7 @@ function nyxiaUserContextText() {
     div.style.cssText = 'display:flex;gap:10px;align-items:flex-start'
     var wrapper = document.createElement('div'); wrapper.style.cssText = 'display:flex;flex-direction:column;gap:4px;max-width:100%;flex:1'
     var bubble = document.createElement('div'); bubble.className = 'msg-bubble'
-    bubble.innerHTML = cleanMarkdown(escHtml(greeting)).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>')
+    bubble.innerHTML = cleanMarkdown(escHtml(nxPersonalizeText(greeting))).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>')
     wrapper.appendChild(bubble)
     div.innerHTML = avatarHtmlFor(agentKey)
     div.appendChild(wrapper)
@@ -805,6 +805,7 @@ function nyxiaUserContextText() {
   }
 
   function addBotMessage(text) {
+    text = nxPersonalizeText(text)
     var parsedLinks = extractResourceLinks(text)
     text = parsedLinks.text
     var msgAgent = _currentAgent
@@ -1160,13 +1161,24 @@ function nyxiaUserContextText() {
   }
 
 
+  function nxPersonalizeText(value) {
+    var first = typeof clientName === 'string' ? clientName.trim() : ''
+    return String(value == null ? '' : value).replace(/\{prenom\}/gi, function() { return first || 'toi' })
+  }
+
   function cleanMarkdown(str) {
     return str
       .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:#c4b5fd;text-decoration:underline">$1</a>')
       // Filet de sécurité : une URL brute reste cliquable si un média n'a pas été transformé en player.
       .replace(/(^|\s)(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener" style="color:#c4b5fd;text-decoration:underline;overflow-wrap:anywhere">$2</a>')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/&lt;(\/?)(strong|em|b|i)&gt;/gi, function(_, close, tag) { return '<' + close + (/^(strong|b)$/i.test(tag) ? 'strong' : 'em') + '>' })
+      .replace(/&lt;br\s*\/?&gt;/gi, '\n')
+      .replace(/&lt;\/?p&gt;/gi, '\n')
+      .replace(/\*\*\*([^\n]+?)\*\*\*/g, '<strong><em>$1</em></strong>')
+      .replace(/\*\*([^\n]+?)\*\*(?!\*)/g, '<strong>$1</strong>')
+      .replace(/__([^\n]+?)__/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>')
+      .replace(/(^|[^\w])_([^_\n]+?)_(?!\w)/g, '$1<em>$2</em>')
       .replace(/^---+$/gm, '')
       .replace(/^#{1,6}\s+/gm, '')
       .replace(/^[-*]\s+/gm, '')
@@ -1176,7 +1188,9 @@ function nyxiaUserContextText() {
   }
 
   function cleanForSpeech(str) {
-    return str
+    return nxPersonalizeText(str)
+      .replace(/__([^\n]+?)__/g, '$1')
+      .replace(/(^|[^\w])_([^_\n]+?)_(?!\w)/g, '$1$2')
       .replace(/\*\*(.*?)\*\*/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
       .replace(/---+/g, '')
