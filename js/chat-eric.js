@@ -581,10 +581,10 @@ function nyxiaUserContextText() {
       nxFlowWrap();return d
     }).catch(function(){})
   }
-  function nxFlowRequest(id,advance,mode) {
+  function nxFlowRequest(id,advance,mode,restart) {
     if(nxFlowBusy)return Promise.resolve(false)
     nxFlowBusy=true;document.querySelectorAll('.nx-uniform-next,#formation-launch-btn,#formation-launch').forEach(function(b){b.disabled=true})
-    return nxFlowCall({action:advance?'advance':'open',formationId:id,mode:mode||''}).then(function(d){
+    return nxFlowCall({action:restart?'restart':advance?'advance':'open',formationId:id,mode:mode||''}).then(function(d){
       nxFlowResume=false;nxFlowSelected=(d.formationDone||d.reviewDone)?null:{id:d.formationId||id,mode:d.review?'review':mode||'follow'};nxFlowRemember()
       if(d.content){addBotMessage(d.content);if(typeof currentHistory==='function')currentHistory().push({role:'assistant',content:d.content});else if(typeof chatHistories!=='undefined'&&chatHistories[_currentAgent])chatHistories[_currentAgent].push({role:'assistant',content:d.content});if(typeof saveChatToStorage==='function')saveChatToStorage()}
       if(!nxFlowSelected)document.querySelectorAll('.nx-uniform-next').forEach(function(b){b.remove()})
@@ -648,13 +648,39 @@ function nyxiaUserContextText() {
         return p
       }).catch(function(){return null}).finally(function(){nxLiveRefreshPromise=null})
   }
+
+  function nxNamedFormation(text, list) {
+    var clean=function(v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()}
+    var n=clean(text)
+    if(!/\b(?:formation|cours)\b/.test(n)||! /\b(?:veux|voudrais|souhaite|aimerais|faire|refaire|revoir|recommencer|reprendre|commencer|demarrer|debuter|lancer)\b/.test(n))return null
+    if(/\b(?:ne veux pas|veux pas|ne souhaite pas|souhaite pas)\b/.test(n))return null
+    var stop=['formation','formations','cours','de','du','des','la','le','les','a','au','aux','en','et','un','une','vivante']
+    var matches=(list||[]).map(function(f){var words=clean(f.titre).split(' ').filter(function(w){return w&&stop.indexOf(w)<0});var score=words.length&&words.every(function(w){return (' '+n+' ').indexOf(' '+w+' ')>=0})?words.join(' ').length:0;return {formation:f,score:score}}).filter(function(x){return x.score}).sort(function(a,b){return b.score-a.score})
+    if(!matches.length||matches[1]&&matches[1].score===matches[0].score)return null
+    return {formation:matches[0].formation,restart:/\b(?:refaire|revoir|recommencer)\b/.test(n)}
+  }
+  function nxTryNamedFormation(text,options) {
+    if(options&&options.intent==='card-reading'||typeof _currentAttachment!=='undefined'&&_currentAttachment)return Promise.resolve(false)
+    if(!/\b(?:formation|cours)\b/i.test(String(text||'')))return Promise.resolve(false)
+    return nxFlowCall({action:'list'}).then(function(data){
+      var match=nxNamedFormation(text,data.formations||[])
+      if(!match)return false
+      if(match.formation.status==='locked'){addBotMessage('Cette formation n’est pas encore débloquée.');return true}
+      addUserMessage(text)
+      chatHistories[_currentAgent].push({role:'user',content:text})
+      saveChatToStorage()
+      nxLivePendingPhrase=''
+      return nxFlowRequest(match.formation.id,false,match.restart||match.formation.status==='completed'?'review':'follow',match.restart||match.formation.status==='completed').then(function(){return true})
+    }).catch(function(){return false})
+  }
+
   function sendMessageText(text, fromVoice, options) {
     if(nxFlowBusy)return
     if (nxLiveSending) return
     nxLiveSending = true
     if (document.getElementById('btn-send') && document.getElementById('btn-send').disabled) {nxLiveSending=false;return}
     nxLivePendingPhrase=text
-    return nxLiveRefresh().then(function(){nxLiveSending=false;return nxSendMessageTextOriginal(text,fromVoice,options)})
+    return nxLiveRefresh().then(function(){return nxTryNamedFormation(text,options)}).then(function(handled){nxLiveSending=false;if(!handled)return nxSendMessageTextOriginal(text,fromVoice,options)}).finally(function(){nxLiveSending=false})
   }
   function nxLiveOffer(host,text) {
     if(nxFlowSelected||nxFlowBusy)return

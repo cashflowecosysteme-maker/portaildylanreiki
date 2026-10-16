@@ -709,6 +709,7 @@ async function nxLiveApi(request,env,ctx){
 
 async function NX_FLOW_LIST(env,s,agent){const fs=await formations(env,agent),{st}=await readFormationProgress(env,s,agent,fs);return fs.map(f=>({id:f.id,titre:f.titre,hasProgress:!!st.progress?.[f.id]?.started,status:formationStatus(fs,st,f.id)}))}
 async function NX_FLOW_TURN(env,s,agent,id,advance,mode){return formationTurn(env,s,agent,advance?'suite':'reprendre ma formation',id,mode)}
+async function nxResetFormationReview(env,s,agent,id){const fs=await formations(env,agent),state=await readFormationProgress(env,s,agent,fs);state.st.review=state.st.review||{};state.st.review[id]={mi:0,bi:0,started:true};await saveFormationProgressState(env,state.key,state.st)}
 async function nxFormationFlowApi(request,env,ctx){
  const u=new URL(request.url);if(u.pathname!=='/api/personnage/formation')return null;
  const b=await request.clone().json().catch(()=>({})),agent=String(b.agent||'').toLowerCase();
@@ -722,7 +723,8 @@ async function nxFormationFlowApi(request,env,ctx){
  const selected=list.find(f=>f.id===b.formationId)||(!b.formationId?list.find(f=>f.status!=='locked'&&f.status!=='completed'):null);
  if(!selected)return json({error:'Formation introuvable.'},404);
  if(selected.status==='locked')return json({error:'Cette formation n’est pas encore débloquée.'},403);
- const result=await NX_FLOW_TURN(env,s,agent,selected.id,b.action==='advance',selected.status==='completed'?'review':b.mode||'');
+ if(b.action==='restart')await nxResetFormationReview(env,s,agent,selected.id);
+ const result=await NX_FLOW_TURN(env,s,agent,selected.id,b.action==='advance',b.action==='restart'||selected.status==='completed'?'review':b.mode||'');
  if(!result)return json({error:'Formation introuvable.'},404);
  result.content=String(result.content||'').replace(/\n\n— [^\n]*(?:[«“]suite[»”]|dis [«“]suite[»”])[^\n]*\s*$/i,'');
  return json({...result,formationId:result.formationId||selected.id});
