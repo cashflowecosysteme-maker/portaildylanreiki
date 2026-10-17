@@ -93,21 +93,26 @@ function nxProductVideoInfo(value){
 }
 
 function nxParcoursPresentation(p){
- if(nxProductVideoInfo(p.imageMain))return Object.assign({},p,{imageMain:'',videoUrl:p.videoUrl||p.imageMain,videoFirst:true});
- return p;
+ var videos=[],seen={};
+ [p.videoUrl,p.imageMain].concat(p.images||[]).forEach(function(url){if(url&&!seen[url]&&nxProductVideoInfo(url)){seen[url]=true;videos.push(url);}});
+ var mainVideo=!!nxProductVideoInfo(p.imageMain);
+ return Object.assign({},p,{imageMain:mainVideo?'':p.imageMain,videoUrl:nxProductVideoInfo(p.videoUrl)?p.videoUrl:(videos[0]||''),videoFirst:mainVideo||p.videoFirst===true,presentationVideos:videos});
 }
 function nxParcoursVideo(p){
  var box=document.getElementById('detail-video'),text=document.getElementById('detail-text');
- var info=nxProductVideoInfo(p.videoUrl),position=p.videoPosition||'gallery';
+ var urls=p.presentationVideos||[p.videoUrl],position=p.videoPosition||'gallery';
+ urls=urls.filter(function(url){return !!nxProductVideoInfo(url)});
  if(!box){box=document.createElement('div');box.id='detail-video';text.parentNode.insertBefore(box,text);}
- box.innerHTML='';box.hidden=!info||position==='hidden';if(box.hidden)return;
+ box.innerHTML='';box.hidden=!urls.length||position==='hidden';if(box.hidden)return;
  text.parentNode.insertBefore(box,position==='description'?document.getElementById('detail-actions'):text);
  box.style.cssText='margin:16px 0;width:100%;max-width:100%;';
- var media=document.createElement(info.kind==='video'?'video':'iframe');
- media.src=info.src;media.style.cssText='display:block;width:100%;aspect-ratio:16/9;border:1px solid rgba(233,204,128,.3);border-radius:14px;background:#0A1628;';
- if(info.kind==='video'){media.controls=true;media.preload='metadata';media.setAttribute('playsinline','');}
- else{media.title=p.videoTitle||'Vidéo de présentation — '+(p.title||'Produit');media.setAttribute('allowfullscreen','');media.setAttribute('allow','encrypted-media; picture-in-picture');}
- box.appendChild(media);
+ urls.forEach(function(url){
+  var info=nxProductVideoInfo(url),media=document.createElement(info.kind==='video'?'video':'iframe');
+  media.src=info.src;media.style.cssText='display:block;width:100%;aspect-ratio:16/9;margin:0 0 12px;border:1px solid rgba(233,204,128,.3);border-radius:14px;background:#0A1628;';
+  if(info.kind==='video'){media.controls=true;media.preload='metadata';media.setAttribute('playsinline','');}
+  else{media.title=p.videoTitle||'Vidéo de présentation — '+(p.title||'Produit');media.setAttribute('allowfullscreen','');media.setAttribute('allow','encrypted-media; picture-in-picture');}
+  box.appendChild(media);
+ });
  if(p.videoTitle){var title=document.createElement('p');title.textContent=p.videoTitle;box.appendChild(title);}
  if(position==='gallery'&&p.videoFirst===true){var image=document.getElementById('detail-image');image.hidden=true;}
 }
