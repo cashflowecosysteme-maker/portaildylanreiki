@@ -74,3 +74,12 @@ h1{margin:0 0 10px;font-family:'Cormorant Garamond',serif;font-size:clamp(34px,5
 .formation-arrow{color:var(--p3);font-size:20px}
 .boutique-toolbar{margin-top:0}
 @media(max-width:680px){.formation-zone{padding:14px}.formation-row{grid-template-columns:minmax(0,1fr) auto 14px;padding:12px}.formation-main small{white-space:normal}.formation-status{font-size:10px}}
+
+
+/* Cercle d’entraide — barre de défilement conforme au menu. */
+html:has(.cercle-callout),body:has(.cercle-callout),body:has(.cercle-callout) .detail-card{scrollbar-width:thin;scrollbar-color:rgba(123,92,255,.25) transparent}
+html:has(.cercle-callout)::-webkit-scrollbar,body:has(.cercle-callout)::-webkit-scrollbar,body:has(.cercle-callout) .detail-card::-webkit-scrollbar{width:6px;height:6px}
+html:has(.cercle-callout)::-webkit-scrollbar-track,body:has(.cercle-callout)::-webkit-scrollbar-track,body:has(.cercle-callout) .detail-card::-webkit-scrollbar-track{background:transparent}
+html:has(.cercle-callout)::-webkit-scrollbar-thumb,body:has(.cercle-callout)::-webkit-scrollbar-thumb,body:has(.cercle-callout) .detail-card::-webkit-scrollbar-thumb{background:rgba(123,92,255,.25);border-radius:10px}
+html:has(.cercle-callout)::-webkit-scrollbar-thumb:hover,body:has(.cercle-callout)::-webkit-scrollbar-thumb:hover,body:has(.cercle-callout) .detail-card::-webkit-scrollbar-thumb:hover{background:rgba(123,92,255,.45)}
+html:has(.cercle-callout)::-webkit-scrollbar-corner,body:has(.cercle-callout)::-webkit-scrollbar-corner,body:has(.cercle-callout) .detail-card::-webkit-scrollbar-corner{background:transparent}
