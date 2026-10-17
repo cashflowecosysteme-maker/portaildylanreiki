@@ -83,3 +83,26 @@ html:has(.cercle-callout)::-webkit-scrollbar-track,body:has(.cercle-callout)::-w
 html:has(.cercle-callout)::-webkit-scrollbar-thumb,body:has(.cercle-callout)::-webkit-scrollbar-thumb,body:has(.cercle-callout) .detail-card::-webkit-scrollbar-thumb{background:rgba(123,92,255,.25);border-radius:10px}
 html:has(.cercle-callout)::-webkit-scrollbar-thumb:hover,body:has(.cercle-callout)::-webkit-scrollbar-thumb:hover,body:has(.cercle-callout) .detail-card::-webkit-scrollbar-thumb:hover{background:rgba(123,92,255,.45)}
 html:has(.cercle-callout)::-webkit-scrollbar-corner,body:has(.cercle-callout)::-webkit-scrollbar-corner,body:has(.cercle-callout) .detail-card::-webkit-scrollbar-corner{background:transparent}
+
+/* Galeries produit : défilement NyXia, une seule fiche active, fermeture accessible. */
+html,body,.detail-card{scrollbar-width:thin;scrollbar-color:rgba(123,92,255,.25) transparent}
+html::-webkit-scrollbar,body::-webkit-scrollbar,.detail-card::-webkit-scrollbar{width:6px;height:6px}
+html::-webkit-scrollbar-track,body::-webkit-scrollbar-track,.detail-card::-webkit-scrollbar-track{background:transparent}
+html::-webkit-scrollbar-thumb,body::-webkit-scrollbar-thumb,.detail-card::-webkit-scrollbar-thumb{background:rgba(123,92,255,.25);border-radius:10px}
+html::-webkit-scrollbar-thumb:hover,body::-webkit-scrollbar-thumb:hover,.detail-card::-webkit-scrollbar-thumb:hover{background:rgba(123,92,255,.45)}
+html.nx-product-modal-open,html.nx-product-modal-open body{overflow:hidden!important}
+html.nx-product-modal-open .detail{overflow:hidden;overscroll-behavior:contain}
+html.nx-product-modal-open .detail-card{max-height:calc(100dvh - 40px);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
+html.nx-product-modal-open .detail-head{position:sticky;top:-24px;z-index:4;background:#0b122b;padding:8px 0 12px;isolation:isolate}
+html.nx-product-modal-open .detail-head .close{flex-shrink:0}
+.nx-product-gallery{margin:16px 0;width:100%;min-width:0}
+.nx-product-gallery[hidden],.nx-product-thumbnails[hidden]{display:none!important}
+.nx-product-view{width:100%;overflow:hidden;border-radius:14px;border:1px solid rgba(233,204,128,.28);background:#0A1628}
+.nx-product-view img{display:block;width:100%;height:auto;max-height:min(42vh,340px);object-fit:contain}
+.nx-product-view video,.nx-product-view iframe{display:block;width:100%;height:min(42vh,340px);min-height:140px;object-fit:contain;border:0;background:#0A1628}
+.nx-product-thumbnails{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;max-width:100%}
+.nx-product-thumbnails button{display:flex;align-items:center;justify-content:center;min-width:64px;height:50px;padding:4px;border:1px solid rgba(233,204,128,.28);border-radius:9px;background:rgba(6,10,24,.8);color:#e9cc80;font:400 12px Montserrat,Outfit,Arial,sans-serif;cursor:pointer;backdrop-filter:blur(10px)}
+.nx-product-thumbnails button[aria-pressed="true"]{border-color:#e9cc80;box-shadow:0 0 10px rgba(233,204,128,.12)}
+.nx-product-thumbnails button:focus-visible{outline:2px solid #e9cc80;outline-offset:3px}
+.nx-product-thumbnails img{display:block;width:56px;height:40px;object-fit:cover;border-radius:5px}
+@media(max-width:680px){html.nx-product-modal-open .detail{padding:10px}html.nx-product-modal-open .detail-card{max-height:calc(100dvh - 20px)}html.nx-product-modal-open .detail-head{top:-18px}.nx-product-view video,.nx-product-view iframe{height:35vh}.nx-product-view img{max-height:35vh}}
