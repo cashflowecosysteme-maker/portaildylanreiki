@@ -561,6 +561,95 @@ function nyxiaUserContextText() {
   var nxFlowReady = false
   var nxFlowLastOpen = ''
   var nxFlowList = []
+
+  /* NYXIA — accès permanent aux formations dans le chat. */
+  var nxTrainingRows = [], nxTrainingChoice = '', nxTrainingLastSelected = '', nxTrainingPending = false
+  var nxTrainingAdapter = {selected:function(){return nxFlowSelected},busy:function(){return nxFlowBusy || (typeof nxLiveSending !== 'undefined' && nxLiveSending)},open:function(f,same,restart){if(restart)return nxFlowRequest(f.id,false,'review',true);if(same)return nxFlowRequest(f.id,!nxFlowResume,nxFlowSelected.mode);return nxFlowRequest(f.id,false,'follow')}}
+  function nxTrainingSelected() { return nxTrainingAdapter.selected() }
+  function nxTrainingUpdate(rows) {
+    nxTrainingRows = (Array.isArray(rows) ? rows : []).filter(function(f){return f && f.id && f.status !== 'locked'})
+    var selected = nxTrainingSelected(), selectedId = selected && String(selected.id) || ''
+    if (selectedId && selectedId !== nxTrainingLastSelected && nxTrainingRows.some(function(f){return String(f.id) === selectedId})) nxTrainingChoice = selectedId
+    nxTrainingLastSelected = selectedId
+    if (!nxTrainingRows.some(function(f){return String(f.id) === nxTrainingChoice})) {
+      var current = nxTrainingRows.find(function(f){return f.status !== 'completed'}) || nxTrainingRows[0]
+      nxTrainingChoice = current ? String(current.id) : ''
+    }
+    nxTrainingRender()
+  }
+  function nxTrainingElements() {
+    var bar = document.getElementById('nx-training-controls')
+    if (bar) return bar
+    var composer = document.querySelector('.chat-input-wrap')
+    if (!composer || !composer.parentNode) return null
+    if (!document.getElementById('nx-training-style')) {
+      var style = document.createElement('style'); style.id = 'nx-training-style'
+      style.textContent = '.nx-training-ready #formation-launch-wrap,.nx-training-ready .nx-uniform-next,.nx-training-ready .nx-formation-next,.nx-training-ready .nx-live-formation-trigger,.nx-training-ready .nx-formation-trigger{display:none!important}' +
+        '#nx-training-controls{flex:0 0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:7px max(20px,calc((100% - 980px)/2));font-family:Montserrat,Outfit,Arial,sans-serif;font-size:13px;line-height:1.4;background:transparent}' +
+        '#nx-training-controls[hidden],#nx-training-controls [hidden]{display:none!important}' +
+        '#nx-training-controls button,#nx-training-controls select{font:inherit;font-weight:400;min-height:38px;max-width:100%;border:1px solid rgba(233,204,128,.35);border-radius:10px;background:rgba(6,10,24,.8);color:#e9cc80;padding:7px 12px;cursor:pointer;box-shadow:0 0 10px rgba(233,204,128,.05);backdrop-filter:blur(10px)}' +
+        '#nx-training-controls button:hover,#nx-training-controls select:hover{border-color:rgba(233,204,128,.7)}' +
+        '#nx-training-controls button:focus-visible,#nx-training-controls select:focus-visible{outline:2px solid #e9cc80;outline-offset:3px}' +
+        '#nx-training-controls button:disabled,#nx-training-controls select:disabled{opacity:.55;cursor:wait}' +
+        '#nx-training-controls select{max-width:min(360px,100%);text-overflow:ellipsis}#nx-training-controls option{background:#060a18;color:#e9cc80}' +
+        '#nx-training-controls .nx-training-restart{border-color:transparent;background:transparent;box-shadow:none;text-decoration:underline;text-underline-offset:3px}' +
+        '#nx-training-controls .nx-training-title{color:#c5cbe0;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#nx-training-notice{width:100%;color:#d6d9f0}' +
+        '@media(max-width:600px){#nx-training-controls{padding:7px 14px;gap:6px}#nx-training-controls select{flex:1 1 100%;width:100%;max-width:100%}#nx-training-controls .nx-training-title{flex:1 1 100%;max-width:100%}}'
+      document.head.appendChild(style)
+    }
+    bar = document.createElement('div'); bar.id = 'nx-training-controls'; bar.setAttribute('role','group'); bar.setAttribute('aria-label','Ma formation'); bar.hidden = true
+    var title = document.createElement('span'); title.className = 'nx-training-title'; title.id = 'nx-training-title'; bar.appendChild(title)
+    var select = document.createElement('select'); select.id = 'nx-training-select'; select.setAttribute('aria-label','Choisir ma formation'); select.addEventListener('change',function(){nxTrainingChoice = select.value;nxTrainingRender()}); bar.appendChild(select)
+    var primary = document.createElement('button'); primary.type = 'button'; primary.id = 'nx-training-primary'; primary.addEventListener('click',function(){nxTrainingRun(false)}); bar.appendChild(primary)
+    var restart = document.createElement('button'); restart.type = 'button'; restart.id = 'nx-training-restart'; restart.className = 'nx-training-restart'; restart.textContent = 'Recommencer'; restart.addEventListener('click',function(){nxTrainingRun(true)}); bar.appendChild(restart)
+    var notice = document.createElement('span'); notice.id = 'nx-training-notice'; notice.setAttribute('role','status'); notice.setAttribute('aria-live','polite'); notice.hidden = true; bar.appendChild(notice)
+    composer.parentNode.insertBefore(bar,composer)
+    var send = document.getElementById('btn-send')
+    if (send && typeof MutationObserver !== 'undefined') new MutationObserver(nxTrainingRender).observe(send,{attributes:true,attributeFilter:['disabled']})
+    return bar
+  }
+  function nxTrainingRender() {
+    var bar = nxTrainingElements(); if (!bar) return
+    bar.hidden = !nxTrainingRows.length
+    document.body.classList.toggle('nx-training-ready',!!nxTrainingRows.length)
+    if (!nxTrainingRows.length) return
+    var row = nxTrainingRows.find(function(f){return String(f.id) === nxTrainingChoice}); if (!row) return
+    var selected = nxTrainingSelected(), same = selected && String(selected.id) === String(row.id)
+    var busy = nxTrainingPending || nxTrainingAdapter.busy() || !!(document.getElementById('btn-send') || {}).disabled
+    var select = document.getElementById('nx-training-select'), title = document.getElementById('nx-training-title')
+    var signature = JSON.stringify(nxTrainingRows.map(function(f){return [String(f.id),f.titre || f.title || 'Formation']}))
+    if (select.dataset.rows !== signature) {
+      select.textContent = ''
+      nxTrainingRows.forEach(function(f){var option = document.createElement('option'); option.value = String(f.id); option.textContent = f.titre || f.title || 'Formation'; select.appendChild(option)})
+      select.dataset.rows = signature
+    }
+    select.value = nxTrainingChoice; select.hidden = nxTrainingRows.length < 2; select.disabled = busy
+    title.textContent = row.titre || row.title || ''; title.title = title.textContent; title.hidden = nxTrainingRows.length > 1 || !title.textContent
+    var primary = document.getElementById('nx-training-primary'), restart = document.getElementById('nx-training-restart')
+    primary.textContent = same || row.status !== 'completed' && row.hasProgress ? 'Continuer ma formation' : row.status === 'completed' ? 'Recommencer ma formation' : 'Commencer ma formation'
+    primary.disabled = busy
+    restart.hidden = row.status === 'completed' && !same || !same && !row.hasProgress
+    restart.disabled = busy
+    bar.setAttribute('aria-busy',busy ? 'true' : 'false')
+  }
+  function nxTrainingRun(restart) {
+    if (nxTrainingPending || nxTrainingAdapter.busy() || (document.getElementById('btn-send') || {}).disabled) return Promise.resolve(false)
+    var row = nxTrainingRows.find(function(f){return String(f.id) === nxTrainingChoice}); if (!row) return Promise.resolve(false)
+    var selected = nxTrainingSelected(), same = selected && String(selected.id) === String(row.id)
+    var notice = document.getElementById('nx-training-notice'); if (notice) {notice.hidden = true;notice.textContent = ''}
+    nxTrainingPending = true; nxTrainingRender()
+    return Promise.resolve().then(function(){return nxTrainingAdapter.open(row,same,!!restart || row.status === 'completed' && !same)})
+      .then(function(ok){if(ok === false) throw new Error('load');return true})
+      .catch(function(){if(notice){notice.textContent = 'La formation n’a pas pu se charger. Réessaie avec le bouton.';notice.hidden = false}return false})
+      .finally(function(){nxTrainingPending = false;nxTrainingRender()})
+  }
+  var nxTrainingOriginalRefresh = nxFlowRefresh
+  nxFlowRefresh = function() {
+    return Promise.resolve(nxTrainingOriginalRefresh.apply(this,arguments)).then(function(data){nxTrainingUpdate(nxFlowList);return data})
+  }
+  // Les boutons restent accessibles pendant les réponses et après la fin d’un cours.
+  document.addEventListener('click',function(){Promise.resolve().then(nxTrainingRender)})
+
   function nxFlowStyle(button) {
     button.style.cssText='display:inline-block;align-self:flex-start;width:auto;max-width:100%;margin-top:10px;padding:8px 14px;border:1px solid rgba(233,204,128,.4);border-radius:10px;background:rgba(6,10,24,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);color:#e9cc80;font:inherit;font-weight:400;line-height:1.4;cursor:pointer;box-shadow:0 0 10px rgba(233,204,128,.06)'
   }
