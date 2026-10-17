@@ -114,7 +114,7 @@ function nxParcoursVideo(p){
   box.appendChild(media);
  });
  if(p.videoTitle){var title=document.createElement('p');title.textContent=p.videoTitle;box.appendChild(title);}
- if(position==='gallery'&&p.videoFirst===true){var image=document.getElementById('detail-image');image.hidden=true;}
+ if(position==='gallery'&&p.videoFirst===true){var image=document.getElementById('detail-image');image.hidden=true;image.style.display='none';}
 }
 function nxParcoursStopVideo(){var box=document.getElementById('detail-video');if(box){box.innerHTML='';box.hidden=true;}}
 
@@ -122,7 +122,7 @@ function openDetail(p){
  p=nxParcoursPresentation(p);
  document.getElementById('detail-meta').textContent=(p.type||'Parcours')+' · '+portalName(p.portal);
  document.getElementById('detail-title').textContent=p.title||'Expérience NyXia';
- var img=document.getElementById('detail-image');if(p.imageMain){img.src=p.imageMain;img.hidden=false}else{img.hidden=true;img.removeAttribute('src')}
+ var img=document.getElementById('detail-image');img.onerror=function(){this.hidden=true;this.style.display='none';this.removeAttribute('src')};if(typeof p.imageMain==='string'&&p.imageMain.trim()){img.src=p.imageMain.trim();img.hidden=false;img.style.display=''}else{img.hidden=true;img.style.display='none';img.removeAttribute('src')}
  document.getElementById('detail-text').textContent=p.description||p.shortDescription||'';
  nxParcoursVideo(p);
  var act=actionFor(p),box=document.getElementById('detail-actions');
