@@ -42,7 +42,7 @@ var state={products:[],settings:{}};
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function money(p){if(p.priceLabel)return p.priceLabel;if(p.price==null||p.price==='')return'';var n=Number(p.price);if(!isFinite(n)||n<=0)return'';try{return n.toLocaleString('fr-CA',{style:'currency',currency:p.currency||'CAD'})}catch(_){return n.toFixed(2)+' $'}}
 function portalName(id){var p=(state.settings.portals||[]).find(function(x){return x.id===id});return p&&p.name?p.name:(id||'NyXia')}
-function media(p){return p.imageMain?'<img src="'+esc(p.imageMain)+'" alt="'+esc(p.title||'')+'" loading="lazy">':'<span class="fallback">✦</span>'}
+function media(p){p=nxParcoursPresentation(p);if(!p.imageMain&&p.videoPosition!=='hidden'&&nxProductVideoInfo(p.videoUrl))return '<span class="fallback">▶ Vidéo de présentation</span>';return p.imageMain?'<img src="'+esc(p.imageMain)+'" alt="'+esc(p.title||'')+'" loading="lazy">':'<span class="fallback">✦</span>'}
 function render(list){
  var h=document.getElementById('cards');
  if(!list.length){h.innerHTML='<div class="empty">Aucune proposition publiée ne correspond à cette recherche.</div>';return}
@@ -72,16 +72,59 @@ function actionFor(p){
  else if(Number(p.price)>0)label='Rejoindre / acheter';
  return{url:url,label:label};
 }
+function nxProductVideoInfo(value){
+ var raw=String(value||'').trim();if(!raw)return null;
+ try{
+  var url=new URL(raw,'https://boutique.nyxia.top');if(url.protocol!=='https:'&&url.protocol!=='http:')return null;
+  var host=url.hostname.toLowerCase().replace(/^www\./,''),id='',match;
+  if(host==='youtu.be')id=url.pathname.split('/')[1]||'';
+  else if(host==='youtube.com'||host==='m.youtube.com'||host==='youtube-nocookie.com'){
+   if(url.pathname==='/watch')id=url.searchParams.get('v')||'';
+   else{match=url.pathname.match(/^\/(?:embed|shorts|live)\/([A-Za-z0-9_-]+)/);if(match)id=match[1];}
+  }
+  if(id&&/^[A-Za-z0-9_-]{6,}$/.test(id))return{kind:'iframe',src:'https://www.youtube-nocookie.com/embed/'+encodeURIComponent(id)+'?rel=0',provider:'YouTube'};
+  if(host==='vimeo.com'||host==='player.vimeo.com'){
+   match=url.pathname.match(/(?:\/video)?\/(\d+)(?:\/([A-Za-z0-9]+))?/);
+   if(match){var hash=url.searchParams.get('h')||match[2]||'';return{kind:'iframe',src:'https://player.vimeo.com/video/'+match[1]+(hash?'?h='+encodeURIComponent(hash):''),provider:'Vimeo'};}
+  }
+  if(/\.mp4$/i.test(url.pathname))return{kind:'video',src:url.href,provider:'MP4'};
+ }catch(_){}
+ return null;
+}
+
+function nxParcoursPresentation(p){
+ if(nxProductVideoInfo(p.imageMain))return Object.assign({},p,{imageMain:'',videoUrl:p.videoUrl||p.imageMain,videoFirst:true});
+ return p;
+}
+function nxParcoursVideo(p){
+ var box=document.getElementById('detail-video'),text=document.getElementById('detail-text');
+ var info=nxProductVideoInfo(p.videoUrl),position=p.videoPosition||'gallery';
+ if(!box){box=document.createElement('div');box.id='detail-video';text.parentNode.insertBefore(box,text);}
+ box.innerHTML='';box.hidden=!info||position==='hidden';if(box.hidden)return;
+ text.parentNode.insertBefore(box,position==='description'?document.getElementById('detail-actions'):text);
+ box.style.cssText='margin:16px 0;width:100%;max-width:100%;';
+ var media=document.createElement(info.kind==='video'?'video':'iframe');
+ media.src=info.src;media.style.cssText='display:block;width:100%;aspect-ratio:16/9;border:1px solid rgba(233,204,128,.3);border-radius:14px;background:#0A1628;';
+ if(info.kind==='video'){media.controls=true;media.preload='metadata';media.setAttribute('playsinline','');}
+ else{media.title=p.videoTitle||'Vidéo de présentation — '+(p.title||'Produit');media.setAttribute('allowfullscreen','');media.setAttribute('allow','encrypted-media; picture-in-picture');}
+ box.appendChild(media);
+ if(p.videoTitle){var title=document.createElement('p');title.textContent=p.videoTitle;box.appendChild(title);}
+ if(position==='gallery'&&p.videoFirst===true){var image=document.getElementById('detail-image');image.hidden=true;}
+}
+function nxParcoursStopVideo(){var box=document.getElementById('detail-video');if(box){box.innerHTML='';box.hidden=true;}}
+
 function openDetail(p){
+ p=nxParcoursPresentation(p);
  document.getElementById('detail-meta').textContent=(p.type||'Parcours')+' · '+portalName(p.portal);
  document.getElementById('detail-title').textContent=p.title||'Expérience NyXia';
  var img=document.getElementById('detail-image');if(p.imageMain){img.src=p.imageMain;img.hidden=false}else{img.hidden=true;img.removeAttribute('src')}
  document.getElementById('detail-text').textContent=p.description||p.shortDescription||'';
+ nxParcoursVideo(p);
  var act=actionFor(p),box=document.getElementById('detail-actions');
  box.innerHTML='<a class="btn primary" href="'+esc(act.url)+'" target="_blank" rel="noopener">'+esc(act.label)+'</a>';
  document.getElementById('detail').classList.add('open');
 }
-function close(){document.getElementById('detail').classList.remove('open')}
+function close(){nxParcoursStopVideo();document.getElementById('detail').classList.remove('open')}
 document.getElementById('detail-close').onclick=close;
 document.getElementById('detail').onclick=function(e){if(e.target===this)close()};
 document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});
