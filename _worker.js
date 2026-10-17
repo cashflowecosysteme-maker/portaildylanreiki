@@ -1,3 +1,4 @@
+function nxModuleHeading(m,index){const title=String(m?.titre||'');const mode=m?.prefixMode||'none';const prefix=mode==='none'?'':mode==='custom'?String(m?.prefixText||''):'Module '+(m?.numero||index+1)+' ·';return[prefix,title].filter(Boolean).join(' ')}
 // Accès NyXia commun : comptes et droits existants conservés.
 const NX_ACCESS_ID='portail-dylan-reiki',NX_ACCESS_HOST='portaildylanreiki.nyxia.top',NX_ACCESS_ALIASES=["portail-dylan-reiki", "portaildylanreiki"],NX_ACCESS_SESSION_PREFIX='portal:session:';
 const nxNorm=v=>String(v||'').trim().toLowerCase();
@@ -201,7 +202,7 @@ function formationContent(f,pos,first,review=false){
  if(!pos||pos.done)return'';
  const body=renderBlock(pos.b,first);
  const prefix=review?'🔁 **Révision · ':'🎓 **';
- return prefix+(f.titre||'Formation')+' — Module '+(pos.m.numero||pos.mi+1)+' · '+(pos.m.titre||'')+'**\n\n'+body+
+ return prefix+(f.titre||'Formation')+' — '+nxModuleHeading(pos.m,pos.mi)+'**\n\n'+body+
    (review?'\n\n— Dis-moi « suite » pour continuer ta révision.':'\n\n— Quand tu es prête, dis-moi « suite ».');
 }
 
@@ -729,3 +730,4 @@ async function nxFormationFlowApi(request,env,ctx){
  result.content=String(result.content||'').replace(/\n\n— [^\n]*(?:[«“]suite[»”]|dis [«“]suite[»”])[^\n]*\s*$/i,'');
  return json({...result,formationId:result.formationId||selected.id});
 }
+
