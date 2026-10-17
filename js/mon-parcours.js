@@ -61,7 +61,10 @@ function render(list){
 }
 function actionFor(p){
  var url=String(p.ctaUrl||p.systemeCheckoutUrl||'').trim();
- if(!url)return null;
+ if(!url){
+  var id=String(p.id||p.slug||'').trim();
+  return{url:'https://boutique.nyxia.top/'+(id?'produit.html?id='+encodeURIComponent(id):''),label:'Voir dans la boutique'};
+ }
  var label='Continuer';
  var t=String(p.ctaType||'').toLowerCase();
  if(t==='gratuit')label='Rejoindre gratuitement';
@@ -75,7 +78,7 @@ function openDetail(p){
  var img=document.getElementById('detail-image');if(p.imageMain){img.src=p.imageMain;img.hidden=false}else{img.hidden=true;img.removeAttribute('src')}
  document.getElementById('detail-text').textContent=p.description||p.shortDescription||'';
  var act=actionFor(p),box=document.getElementById('detail-actions');
- box.innerHTML=act?'<a class="btn primary" href="'+esc(act.url)+'" target="_blank" rel="noopener">'+esc(act.label)+'</a>':'<span class="btn">Disponible dans la Boutique NyXia</span>';
+ box.innerHTML='<a class="btn primary" href="'+esc(act.url)+'" target="_blank" rel="noopener">'+esc(act.label)+'</a>';
  document.getElementById('detail').classList.add('open');
 }
 function close(){document.getElementById('detail').classList.remove('open')}
