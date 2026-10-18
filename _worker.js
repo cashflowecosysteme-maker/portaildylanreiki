@@ -296,7 +296,7 @@ function sanitizeAssistantContent(content){
  return s||fallback;
 }
 
-async function openrouter(env,messages,model){const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+env.OPENROUTER_API_KEY,'HTTP-Referer':'https://nyxia.top','X-Title':'NyXia Portail'},body:JSON.stringify({model:model||DEFAULT_MODEL,messages,max_tokens:900,temperature:.72})});if(!r.ok)throw Error('OpenRouter '+r.status);const d=await r.json();return d.choices?.[0]?.message?.content?.trim()||''}
+async function openrouter(env,messages,model){const r=await nxChatCompletionFetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+env.OPENROUTER_API_KEY,'HTTP-Referer':'https://nyxia.top','X-Title':'NyXia Portail'},body:JSON.stringify({model:model||DEFAULT_MODEL,messages,max_tokens: 32000,temperature:.72})});if(!r.ok)throw Error('OpenRouter '+r.status);const d=await r.json();return d.choices?.[0]?.message?.content?.trim()||''}
 async function chat(req,env){const b=await req.json().catch(()=>({})),s=await session(env,b.token);if(!s)return json({error:'Session expirée.'},401);const key=norm(b.agent),base=AGENTS[key],a=base?await nxPremiumAgent(env,key,base):null;if(!a||!ACTIVE.has(key))return json({error:'Personnage indisponible.'},403);
  const ft=await formationTurn(env,s,key,b.message||'',b.formationId||'',b.formationMode||'');if(ft)return json(ft);
  const brain=await retrieve(env,a.vectorNamespace||key,b.message||'');let imageInfo='';if(b.attachment?.dataUrl)imageInfo='\nLa personne a joint une image nommée '+String(b.attachment.name||'image')+'.';
@@ -731,3 +731,43 @@ async function nxFormationFlowApi(request,env,ctx){
  return json({...result,formationId:result.formationId||selected.id});
 }
 
+
+// Plafond commun des réponses : 32 000 tokens et trois prolongations maximum.
+async function nxChatCompletionFetch(url, options) {
+  const payload = JSON.parse(options.body);
+  payload.max_tokens = 32000;
+  delete payload.max_completion_tokens;
+  let response = await fetch(url, {...options, body: JSON.stringify(payload)});
+  if (!response.ok || payload.stream) return response;
+  let data;
+  try { data = await response.clone().json(); } catch (_) { return response; }
+  const first = data.choices?.[0];
+  if (!first || typeof first.message?.content !== 'string') return response;
+  let content = first.message.content;
+  let finish = first.finish_reason;
+  const messages = [...(payload.messages || [])];
+  const incomplete = text => {
+    if (typeof looksTruncated === 'function') return looksTruncated(text);
+    return false;
+  };
+  for (let count = 0; count < 3 && content && (finish === 'length' || incomplete(content)); count++) {
+    messages.push({role: 'assistant', content: count ? data.choices[0].message.content : content});
+    messages.push({role: 'user', content: "Continue exactement où tu t'es arrêté, sans répéter le texte précédent, et termine ta réponse."});
+    let next;
+    try { next = await fetch(url, {...options, body: JSON.stringify({...payload, messages})}); }
+    catch (_) { break; }
+    if (!next.ok) break;
+    let part;
+    try { part = await next.json(); } catch (_) { break; }
+    const piece = part.choices?.[0]?.message?.content;
+    if (typeof piece !== 'string' || !piece) break;
+    content += piece;
+    data = part;
+    finish = part.choices[0].finish_reason;
+  }
+  const result = {...data, choices: [{...first, finish_reason: finish, message: {...first.message, content}}, ...(data.choices || []).slice(1)]};
+  const headers = new Headers(response.headers);
+  headers.delete('content-length'); headers.delete('content-encoding');
+  headers.set('content-type', 'application/json');
+  return new Response(JSON.stringify(result), {status: response.status, headers});
+}
