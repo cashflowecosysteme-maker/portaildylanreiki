@@ -19,19 +19,45 @@ function render(list){
     +'<div class="body"><div class="meta"><span>Répertoire NyXia</span><span>'+(p.join_type==='paid'?'Accès promoteur':'Cercle')+'</span></div>'
     +'<h3>'+esc(p.title||'Produit du Cercle')+'</h3>'
     +'<div class="desc">'+esc(d)+(d.length>=155?'…':'')+'</div>'
-    +(money(p)?'<div class="price">'+esc(money(p))+'</div>':'')
     +'<div class="actions"><button class="btn primary" data-open="'+i+'">En Savoir Plus</button></div></div></article>'
  }).join('');
- document.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){openDetail(list[Number(b.dataset.open)])}})
+ document.querySelectorAll('[data-open]').forEach(function(b){b.onclick=function(){return refreshDetail(list[Number(b.dataset.open)],b)}})
+}
+function circleRef(){
+ var ref='';
+ try{var params=new URLSearchParams(window.location.search);ref=params.get('ref')||params.get('code')||''}catch(_){}
+ if(!ref){try{if(window.parent!==window){var parentParams=new URLSearchParams(window.parent.location.search);ref=parentParams.get('ref')||parentParams.get('code')||window.parent.__NYXIA_REF||''}}catch(_){}}
+ if(!ref)ref=window.__NYXIA_REF||'';
+ if(!ref){try{ref=localStorage.getItem('nyxia_ref')||''}catch(_){}}
+ if(!ref){try{var match=document.cookie.match(/(?:^|;\s*)nyxia_ref=([^;]+)/);if(match)ref=decodeURIComponent(match[1])}catch(_){}}
+ return ref;
+}
+function circleLink(value){
+ if(!String(value||'').trim())return '';
+ try{var url=new URL(String(value).trim(),window.location.origin);if(!/^https?:$/.test(url.protocol))return '';var ref=circleRef();if(ref)url.searchParams.set('ref',ref);return url.href}catch(_){return ''}
+}
+function renderCurrent(){var input=document.getElementById('search');var q=String(input&&input.value||'').trim().toLowerCase();render(all.filter(function(p){return !q||[p.title,p.description_short,p.promo_guide].join(' ').toLowerCase().includes(q)}))}
+function loadProducts(){
+ return fetch('/api/nyxia-universe/repertoire',{cache:'no-store'}).then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d}})}).then(function(res){
+  if(!res.ok)throw Error(res.data.error||'Répertoire indisponible.');
+  all=(res.data.products||[]).filter(function(p){return p.status==='active'||p.status==='published'||!p.status});
+  renderCurrent();return all;
+ });
+}
+function refreshDetail(product,button){
+ if(!product)return;
+ button.disabled=true;
+ return loadProducts().then(function(products){var current=products.find(function(p){return String(p.id)===String(product.id)});if(current)openDetail(current);else close()}).catch(function(){close();window.alert('Impossible d’actualiser cette offre. Réessaie dans un instant.')}).finally(function(){button.disabled=false});
 }
 function openDetail(p){
  document.getElementById('detail-title').textContent=p.title||'Produit du Cercle';
  var img=document.getElementById('detail-image');if(p.image_url){img.src=p.image_url;img.hidden=false}else{img.hidden=true;img.removeAttribute('src')}
  document.getElementById('detail-text').innerHTML=nyxiaMarkdown(p.description_short||p.description_long||'')+nyxiaCommissions(p);
  var actions=[];
- var offer=String(p.affiliate_link||'').trim();
+ var offer=circleLink(p.affiliate_link);
  if(offer)actions.push('<a class="btn" href="'+esc(offer)+'" target="_blank" rel="noopener">Voir l’offre</a>');
- actions.push('<a class="btn primary" href="https://www.universnyxia.top/nyxia/cercledentraide" target="_blank" rel="noopener">Rejoindre le Cercle</a>');
+ var join=circleLink(p.join_url);
+ if(join)actions.push('<a class="btn primary" href="'+esc(join)+'" target="_blank" rel="noopener">Rejoindre le Cercle</a>');
  actions.push('<a class="btn" href="https://promoteurs.nyxia.top/login.html" target="_blank" rel="noopener">Déjà membre ?</a>');
  document.getElementById('detail-actions').innerHTML=actions.join('');
  document.getElementById('detail').classList.add('open');
@@ -41,10 +67,7 @@ document.getElementById('detail-close').onclick=close;
 document.getElementById('detail').onclick=function(e){if(e.target===this)close()};
 document.addEventListener('keydown',function(e){if(e.key==='Escape')close()});
 document.getElementById('search').oninput=function(){var q=this.value.trim().toLowerCase();render(all.filter(function(p){return !q||[p.title,p.description_short,p.promo_guide].join(' ').toLowerCase().includes(q)}))};
-fetch('/api/nyxia-universe/repertoire').then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d}})}).then(function(res){
- if(!res.ok)throw Error(res.data.error||'Répertoire indisponible.');
- all=(res.data.products||[]).filter(function(p){return p.status==='active'||p.status==='published'||!p.status});
- render(all);
-}).catch(function(e){document.getElementById('cards').innerHTML='<div class="error">'+esc(e.message)+'</div>'});
+loadProducts().catch(function(e){document.getElementById('cards').innerHTML='<div class="error">'+esc(e.message)+'</div>'});
+window.addEventListener('focus',function(){loadProducts().catch(function(){})});
 })();
 
